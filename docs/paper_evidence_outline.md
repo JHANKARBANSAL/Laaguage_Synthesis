@@ -46,15 +46,16 @@ as one.
 
 ## Results tables to fill from the sealed report
 
-| Language | Questions | Valid schema route | SQL execution success | Execution match | Mean latency (ms) |
+| Language | Questions | Valid schema route | SQL execution success | Execution match (EX%) | Mean latency (ms) |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| English | pending | pending | pending | pending | pending |
-| Hinglish | pending | pending | pending | pending | pending |
-| Hindi | pending | pending | pending | pending | pending |
-| Marathi | pending | pending | pending | pending | pending |
-| Bengali | pending | pending | pending | pending | pending |
-| Tamil | pending | pending | pending | pending | pending |
-| Telugu | pending | pending | pending | pending | pending |
+| English | 40 | 40 (100.0%) | 17 (42.5%) | 7 (17.5%) | 58,430 |
+| Hinglish | 40 | 39 (97.5%) | 21 (52.5%) | 11 (27.5%) | 41,067 |
+| Hindi | 40 | 40 (100.0%) | 24 (60.0%) | 11 (27.5%) | 46,180 |
+| Marathi | 40 | 39 (97.5%) | 19 (47.5%) | 7 (17.5%) | 44,038 |
+| Bengali | 40 | 39 (97.5%) | 23 (57.5%) | 8 (20.0%) | 13,225 |
+| Tamil | 40 | 40 (100.0%) | 25 (62.5%) | 11 (27.5%) | 43,019 |
+| Telugu | 40 | 40 (100.0%) | 24 (60.0%) | 8 (20.0%) | 25,804 |
+| **Overall** | **280** | **277 (98.9%)** | **153 (54.6%)** | **63 (22.5%)** | **38,823** |
 
 Required aggregate fields: mapped-schema denominator, UDISE exclusion count,
 gold execution errors, prediction errors, empty results, and confidence

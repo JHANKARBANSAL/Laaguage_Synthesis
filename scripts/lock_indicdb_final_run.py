@@ -171,5 +171,69 @@ def main() -> int:
     return 0
 
 
+def validate_final_run_lock(
+    *,
+    lock_path: Path,
+    parquet_dir: Path,
+    archive_path: Path,
+    sealed_manifest_path: Path,
+    dsn: str,
+    model_name: str,
+    ollama_url: str,
+    container_name: str | None = None,
+) -> dict:
+    """Validate an existing sealed final-run lock before opening the key file.
+
+    Checks:
+    - lock_sha256 integrity (canonical hash matches)
+    - Parquet SHA-256 hashes match what is locked
+    - Archive SHA-256 matches
+    - Sealed manifest SHA-256 matches
+    - PostgreSQL runtime (version, database, user) matches
+    - Ollama model digest matches
+
+    Returns the parsed lock dict on success; raises ValueError on any mismatch.
+    """
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+
+    # 1. Integrity check
+    observed_hash = lock.pop("lock_sha256", None)
+    if observed_hash != canonical_hash(lock):
+        raise ValueError("Final-run lock integrity check failed: lock_sha256 mismatch.")
+    lock["lock_sha256"] = observed_hash  # restore
+
+    # 2. Parquet hashes
+    from scripts.build_sealed_indicdb_final import LANGUAGE_FILES  # noqa: PLC0415
+    actual_hashes = {lang: sha256_file(parquet_dir / fname) for lang, fname in LANGUAGE_FILES.items()}
+    if actual_hashes != lock.get("input_parquet_sha256"):
+        raise ValueError("Pinned Parquet SHA-256 verification failed.")
+
+    # 3. Archive hash
+    if sha256_file(archive_path) != lock.get("official_archive_sha256"):
+        raise ValueError("Official archive SHA-256 verification failed.")
+
+    # 4. Sealed manifest hash
+    if sha256_file(sealed_manifest_path) != lock.get("sealed_manifest_sha256"):
+        raise ValueError("Sealed manifest SHA-256 differs from lock.")
+
+    # 5. PostgreSQL runtime
+    meta = runtime_metadata(dsn)
+    rt = lock.get("postgresql_runtime", {})
+    if (
+        meta["postgresql_server_version"] != rt.get("postgresql_server_version")
+        or meta["database_name"] != rt.get("database_name")
+        or meta["database_user"] != rt.get("database_user")
+    ):
+        raise ValueError("PostgreSQL runtime differs from the locked runtime.")
+
+    # 6. Ollama model digest
+    locked_model = lock.get("model", {})
+    actual_digest = ollama_model_digest(ollama_url, model_name)
+    if actual_digest != locked_model.get("digest"):
+        raise ValueError("Ollama model digest differs from lock.")
+
+    return lock
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
