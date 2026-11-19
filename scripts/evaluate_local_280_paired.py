@@ -133,7 +133,7 @@ def evaluate_item(query, sandbox, url, model, timeout):
         response = httpx.post(
             url.rstrip("/") + "/api/generate",
             json={"model": model, "prompt": direct_prompt(query.query), "stream": False,
-                  "options": {"temperature": 0, "seed": 42}},
+                  "options": {"temperature": 0.05, "seed": 42}},
             timeout=timeout,
         )
         response.raise_for_status()
