@@ -97,10 +97,13 @@ def execute_indicsql_pipeline(
     database_schema_source: Optional[str] = None,
     language_override: Optional[str] = None,
     sandbox: Optional[Any] = None,
+    max_reflections: int = 3,
 ) -> IndicSQLState:
     """
     Executes the multi-agent swarm for a given query, supporting both LangGraph and native execution.
     """
+    if not isinstance(max_reflections, int) or not (0 <= max_reflections <= 3):
+        raise ValueError('max_reflections must be an integer from 0 to 3')
     if not query_id:
         query_id = f"ind-q-{uuid.uuid4().hex[:8]}"
 
@@ -168,6 +171,8 @@ def execute_indicsql_pipeline(
         if decision == "success" or decision == "fatal_error":
             break
         elif decision == "retry":
+            if state.get("reflection_attempts", 0) >= max_reflections:
+                break
             if state.get("schema_validation_error"):
                 state["schema_validation_retry_used"] = True
             full_schema = state.get("database_schema_full")
