@@ -71,7 +71,7 @@ jobs:
       - name: Fetch released PostgreSQL archive
         run: |
           mkdir -p official_artifacts
-          gdown --id 1PfZN0HAyoPtJ_Ef6YLd3of5YBj24z131 --output official_artifacts/indicDB.zip
+          gdown 'https://drive.google.com/uc?id=1PfZN0HAyoPtJ_Ef6YLd3of5YBj24z131' --output official_artifacts/indicDB.zip
           python - <<'PY'
           import json
           import hashlib
