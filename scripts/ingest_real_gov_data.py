@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-CLI Script to Ingest Authentic Government of India Open Datasets into IndicSQL.
-Populates all 20 NDAP benchmark databases with genuine, authentic data.
+CLI for a mixed-source IndicSQL development dataset.
+Most output tables include modeled/synthetic values; not for official evaluation.
 
 Usage:
-    uv run python scripts/ingest_real_gov_data.py
-    uv run python scripts/ingest_real_gov_data.py --api-key YOUR_DATA_GOV_IN_KEY
+    uv run python scripts/ingest_real_gov_data.py --allow-modeled-data
 """
 
 import argparse
@@ -15,7 +14,7 @@ from indicsql.schema.ingest_real_gov_data import ingest_all_20_ndap_databases
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Ingest authentic Government of India open datasets across all 20 NDAP benchmark tables."
+        description="Create mixed-source local development data; requires explicit modeled-data opt-in."
     )
     parser.add_argument(
         "--api-key",
@@ -30,7 +29,9 @@ def main():
     )
     args = parser.parse_args()
     print("Preparing mixed-source NDAP-style DEVELOPMENT data (not official IndicDB benchmark)...")
-    summary = ingest_all_20_ndap_databases(\n        api_key=args.api_key, allow_modeled_data=args.allow_modeled_data\n    )
+    summary = ingest_all_20_ndap_databases(
+        api_key=args.api_key, allow_modeled_data=args.allow_modeled_data
+    )
 
     print("\n📊 Ingestion Results Summary (20 NDAP Tables):")
     total_records = 0
