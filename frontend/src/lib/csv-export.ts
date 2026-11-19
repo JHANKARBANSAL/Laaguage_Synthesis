@@ -1,6 +1,10 @@
 function escapeCsvCell(value: string | number | boolean | null): string {
   if (value === null) return "";
-  const text = String(value);
+  // Keep genuinely numeric values intact; protect untrusted text cells in spreadsheet apps.
+  const raw = String(value);
+  const text = typeof value === "string" && /^[\\s\\u0000-\\u001f]*[=+\\-@]/u.test(raw)
+    ? `\'${raw}`
+    : raw;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
