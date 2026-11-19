@@ -30,6 +30,7 @@ from indicsql.agents.sql_synthesizer import _ollama_client
 from indicsql.benchmark.indicdb import INDICDB_LANGUAGE_FILES, IndicDBQuery, enrich_schema_context
 from indicsql.graph.workflow import execute_indicsql_pipeline
 from indicsql.sandbox.postgres_engine import PostgresSandbox
+from indicsql.sandbox.validator import validate_postgres_schema_sql
 from scripts.execute_indicdb_gold import build_schema_mapping
 from scripts.lock_indicdb_final_run import canonical_hash, ollama_model_digest, sha256_file
 
@@ -136,6 +137,38 @@ def route_schema(question: str, model: dict[str, Any], candidates: list[str]) ->
     return chosen if chosen in candidates else None
 
 
+def generate_routed_direct_sql(
+    question: str, model: dict[str, Any], schema_context: dict[str, Any]
+) -> str:
+    """Direct Qwen baseline given the SAME model-selected schema as IndicSQL.
+
+    No benchmark label, gold SQL, oracle tables or answer rows enter this prompt.
+    This is a *routed* direct-model baseline, not a no-router zero-shot baseline.
+    """
+    lines = []
+    for table_name, table_info in sorted(schema_context.get('tables', {}).items()):
+        columns = ', '.join(str(column) for column in table_info.get('columns', {}))
+        lines.append(f'{table_name}({columns})')
+    prompt = (
+        'You are a PostgreSQL text-to-SQL model. Return exactly ONE SQL SELECT '
+        'statement, no explanation and no Markdown. Use ONLY the tables/columns '
+        'in the following selected database schema. Do not guess unseen identifiers.\\n'
+        f'DATABASE SCHEMA:\\n' + '\\n'.join(lines) +
+        f'\\nQUESTION: {question}\\nSQL:'
+    )
+    response = httpx.post(
+        f"{model['endpoint'].rstrip('/')}/api/generate",
+        json={'model': model['name'], 'prompt': prompt, 'stream': False,
+              'options': {'temperature': model['temperature'], 'seed': model['seed']}},
+        timeout=90.0,
+    )
+    response.raise_for_status()
+    sql = str(response.json().get('response', '')).strip()
+    if not sql:
+        raise ValueError('Model returned empty SQL')
+    return sql
+
+
 def schema_route_correct(chosen: str | None, benchmark_name: str, mappings: dict[str, dict[str, str]]) -> bool:
     """Compare the selected archive schema with the mapped reference schema.
 
@@ -179,6 +212,7 @@ def main() -> int:
     parser.add_argument('--checkpoint', type=Path)
     parser.add_argument('--receipt', type=Path, default=REPO_ROOT / 'benchmark_results/sealed_final/indicdb_final_run_receipt.json')
     parser.add_argument('--statement-timeout-ms', type=int, default=60000)
+    parser.add_argument('--variant', choices=('full', 'no_reflection', 'routed_direct_qwen'), default='full')
     args = parser.parse_args()
     if args.statement_timeout_ms <= 0:
         parser.error('--statement-timeout-ms must be positive')
@@ -230,14 +264,22 @@ def main() -> int:
                 postgres_schema = chosen.lower()
                 try:
                     context = enrich_schema_context(sandbox.get_schema_context(postgres_schema), configs[chosen])
-                    state = execute_indicsql_pipeline(
-                        query.question, query_id=f'sealed-{opaque_record_id(query)}',
-                        database_schema_name=postgres_schema, database_schema=context,
-                        database_schema_source='released_metadata_router', language_override=query.language,
-                        sandbox=sandbox,
-                    )
-                    prediction, generated_sql = state.get('execution_result'), state.get('generated_sql', '')
-                    prediction_error = state.get('execution_error')
+                    if args.variant == 'routed_direct_qwen':
+                        generated_sql = generate_routed_direct_sql(query.question, model, context)
+                        valid_sql, checked_sql = validate_postgres_schema_sql(generated_sql, context)
+                        if not valid_sql:
+                            raise ValueError(f'Direct baseline SQL rejected: {checked_sql}')
+                        prediction = sandbox.execute_query(checked_sql, postgres_schema)
+                    else:
+                        state = execute_indicsql_pipeline(
+                            query.question, query_id=f'sealed-{opaque_record_id(query)}',
+                            database_schema_name=postgres_schema, database_schema=context,
+                            database_schema_source='released_metadata_router', language_override=query.language,
+                            sandbox=sandbox,
+                            max_reflections=0 if args.variant == 'no_reflection' else 3,
+                        )
+                        prediction, generated_sql = state.get('execution_result'), state.get('generated_sql', '')
+                        prediction_error = state.get('execution_error')
                 except Exception as exc:
                     prediction_error = f'{type(exc).__name__}: {exc}'
             # Gold metadata is used only after prediction and only for the reference execution.
@@ -276,6 +318,8 @@ def main() -> int:
     result = {'artifact_type': 'IndicDB sealed final evaluation', 'official_postgresql_required': True,
               'semantic_correctness_verified': False, 'native_language_review_verified': False,
               'lock_sha256': lock['lock_sha256'], 'selected_question_count': len(records),
+              'experiment_variant': args.variant,
+              'baseline_description': ('Qwen SQL generation with same predicted schema router; not an end-to-end no-router baseline' if args.variant == 'routed_direct_qwen' else None),
               'statement_timeout_ms': args.statement_timeout_ms,
               'metric_note': 'correct_schema_routes compares mapped reference after prediction; valid_schema_routes only checks whether a released schema name was selected',
               'mapped_schema_denominator': len(records),
@@ -289,6 +333,7 @@ def main() -> int:
         'artifact_type': 'IndicDB sealed final-run receipt',
         'lock_sha256': lock['lock_sha256'],
         'result_sha256': sha256_file(args.output),
+        'experiment_variant': args.variant,
         'selected_question_count': len(records),
         'contains_questions_or_gold_sql': False,
     }, indent=2) + '\n', encoding='utf-8')
