@@ -35,6 +35,7 @@ INDIAN_GEOGRAPHY = {
     "WEST BENGAL": ["Kolkata", "Murshidabad", "Howrah", "Darjeeling", "Nadia"],
     "KARNATAKA": ["Bengaluru Rural", "Mysuru", "Belagavi", "Dharwad", "Kalaburagi"],
     "GUJARAT": ["Ahmedabad", "Surat", "Rajkot", "Vadodara", "Mehsana"],
+    "HARYANA": ["Ambala", "Gurugram", "Rewari", "Hisar", "Karnal", "Rohtak"],
     "ANDHRA PRADESH": ["Visakhapatnam", "Vijayawada", "Guntur", "Kurnool", "Nellore"],
     "RAJASTHAN": ["Jaipur", "Jodhpur", "Kota", "Bikaner", "Udaipur"],
     "MADHYA PRADESH": ["Bhopal", "Indore", "Gwalior", "Jabalpur", "Ujjain"],
