@@ -48,11 +48,17 @@ def exact_mcnemar_p(b: int, c: int) -> float:
 def compare_runs(base: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
     if base.get("artifact_type") != candidate.get("artifact_type"):
         raise ValueError("Runs have different artifact types")
+    if not base.get("lock_sha256") or not candidate.get("lock_sha256"):
+        raise ValueError("Missing experiment lock SHA-256")
     if base.get("lock_sha256") != candidate.get("lock_sha256"):
         raise ValueError(
             "Run locks differ: do not compare as a controlled ablation without a "
             "separate validated shared-cohort/model/data manifest"
         )
+    if base.get("experiment_variant") == candidate.get("experiment_variant"):
+        raise ValueError("Comparison requires different named experiment variants")
+    if base.get("statement_timeout_ms") != candidate.get("statement_timeout_ms"):
+        raise ValueError("Statement timeouts differ between compared runs")
     a, b = _records(base), _records(candidate)
     if set(a) != set(b):
         raise ValueError("Different query cohorts: cannot compare matched EX")
@@ -78,6 +84,8 @@ def compare_runs(base: dict[str, Any], candidate: dict[str, Any]) -> dict[str, A
         "artifact_type": "IndicSQL verified paired execution-match comparison",
         "same_cohort": True,
         "same_experiment_lock": True,
+        "baseline_variant": base.get("experiment_variant"),
+        "candidate_variant": candidate.get("experiment_variant"),
         "paired_queries": total,
         "baseline_execution_matches": base_success,
         "candidate_execution_matches": candidate_success,
