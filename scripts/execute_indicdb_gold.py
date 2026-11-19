@@ -99,6 +99,26 @@ def _table_row_counts(connection: Any, catalog: dict[str, set[str]]) -> dict[str
     return counts
 
 
+def audit_completion_status(
+    *,
+    nonempty_rows: int,
+    attempted_rows: int,
+    execution_errors: int,
+    unmapped_rows: int,
+) -> dict[str, bool]:
+    """Distinguish success on mapped cases from true full benchmark coverage."""
+    if min(nonempty_rows, attempted_rows, execution_errors, unmapped_rows) < 0:
+        raise ValueError("Audit counters cannot be negative")
+    if attempted_rows + unmapped_rows != nonempty_rows:
+        raise ValueError("Gold row-accounting mismatch; the audit did not classify every row")
+    mapped_verified = attempted_rows > 0 and execution_errors == 0
+    return {
+        "mapped_gold_sql_execution_verified": mapped_verified,
+        "gold_sql_execution_verified": mapped_verified and unmapped_rows == 0,
+        "all_nonempty_gold_covered": unmapped_rows == 0,
+    }
+
+
 def execute_gold_sql(
     *,
     parquet_root: Path,
@@ -121,8 +141,8 @@ def execute_gold_sql(
     archive_tables = _archive_schema_tables(archive_path)
     mappings = build_schema_mapping(archive_path)
     connection = psycopg2.connect(dsn)
-    connection.set_session(readonly=True, autocommit=False)
     try:
+        connection.set_session(readonly=True, autocommit=False)
         catalog = _catalog_tables(connection)
         mapped_catalog_checks: dict[str, dict[str, Any]] = {}
         for benchmark_name, mapping in mappings.items():
@@ -149,7 +169,20 @@ def execute_gold_sql(
             )
 
         table_rows = _table_row_counts(connection, catalog)
-        connection.commit()
+        observed_rows = sum(count for tables in table_rows.values() for count in tables.values())
+        expected_catalog = manifest["postgresql_dump"]["verified_archive_schema_configs"]
+        expected_schemas = expected_catalog["schemas"]
+        expected_tables = expected_catalog["tables"]
+        expected_rows = 3_910_112  # Source manifest's independently documented restored snapshot.
+        if (len(catalog), sum(map(len, catalog.values())), observed_rows) != (
+            expected_schemas, expected_tables, expected_rows
+        ):
+            raise ValueError(
+                "Restored PostgreSQL dataset differs from the pinned documented snapshot: "
+                f"expected {(expected_schemas, expected_tables, expected_rows)}, "
+                f"observed {(len(catalog), sum(map(len, catalog.values())), observed_rows)}"
+            )
+        connection.rollback()
         records: list[dict[str, Any]] = []
         schema_metrics: dict[str, Counter[str]] = defaultdict(Counter)
         unmapped_rows: Counter[str] = Counter()
@@ -218,12 +251,17 @@ def execute_gold_sql(
                     metric["result_rows"] += row_count or 0
 
         errors = [record for record in records if record["error"]]
+        completion = audit_completion_status(
+            nonempty_rows=nonempty_gold_rows,
+            attempted_rows=len(records),
+            execution_errors=len(errors),
+            unmapped_rows=sum(unmapped_rows.values()),
+        )
         empty_results = [record for record in records if record["empty_result"]]
         return {
             "artifact_type": "IndicDB pinned gold SQL execution audit",
             "official_benchmark_result": False,
-            "gold_sql_execution_verified": bool(records) and not errors and not unmapped_rows,
-            "mapped_gold_sql_execution_verified": bool(records) and not errors,
+            **completion,
             "all_nonempty_gold_rows": nonempty_gold_rows,
             "unmapped_gold_rows": sum(unmapped_rows.values()),
             "gold_sql_scope": "Full pinned Parquet SQL rows with a verified archive mapping; unmapped schemas are excluded",
@@ -244,7 +282,6 @@ def execute_gold_sql(
                 name: dict(metrics) for name, metrics in sorted(schema_metrics.items())
             },
             "queries_attempted": len(records),
-            "all_nonempty_gold_covered": len(records) == nonempty_gold_rows,
             "execution_error_count": len(errors),
             "empty_result_count": len(empty_results),
             "execution_errors": errors,
