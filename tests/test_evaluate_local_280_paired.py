@@ -22,7 +22,7 @@ class TestLocalPaired280(unittest.TestCase):
         prompt = direct_prompt(query.query)
         self.assertIn(query.query, prompt)
         self.assertNotIn(query.gold_sql, prompt)
-        self.assertIn("Available tables", prompt)
+        self.assertIn("All available tables", prompt)
 
     @patch("scripts.evaluate_local_280_paired.httpx.get")
     def test_exact_model_required_no_silent_substitution(self, request):
