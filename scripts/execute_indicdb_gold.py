@@ -26,6 +26,7 @@ from psycopg2 import sql
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.preflight_indicdb_benchmark import _archive_schema_tables, _parse_sql
+from indicsql.sandbox.validator import validate_postgres_readonly_sql
 from scripts.verify_indicdb_sources import MANIFEST_PATH, verify_indicdb_sources
 
 
@@ -120,6 +121,7 @@ def execute_gold_sql(
     archive_tables = _archive_schema_tables(archive_path)
     mappings = build_schema_mapping(archive_path)
     connection = psycopg2.connect(dsn)
+    connection.set_session(readonly=True, autocommit=False)
     try:
         catalog = _catalog_tables(connection)
         mapped_catalog_checks: dict[str, dict[str, Any]] = {}
@@ -151,6 +153,7 @@ def execute_gold_sql(
         records: list[dict[str, Any]] = []
         schema_metrics: dict[str, Counter[str]] = defaultdict(Counter)
         unmapped_rows: Counter[str] = Counter()
+        nonempty_gold_rows = 0
         for language, file_spec in manifest["benchmark"]["files"].items():
             frame = pd.read_parquet(
                 _parquet_path(parquet_root, file_spec["path"]),
@@ -160,6 +163,12 @@ def execute_gold_sql(
                 query_text, pair_id, benchmark_schema = map(lambda value: str(value).strip(), row)
                 if not query_text:
                     continue
+                nonempty_gold_rows += 1
+                valid_sql, normalized_or_reason = validate_postgres_readonly_sql(query_text)
+                if not valid_sql:
+                    raise ValueError(
+                        f"Pinned gold SQL is not a single read-only SELECT: {normalized_or_reason}"
+                    )
                 _tree, parse_error = _parse_sql(query_text)
                 if parse_error:
                     raise ValueError(f"Pinned gold SQL unexpectedly failed parsing: {parse_error}")
@@ -173,14 +182,13 @@ def execute_gold_sql(
                 row_count = None
                 try:
                     with connection.cursor() as cursor:
-                        cursor.execute("SET TRANSACTION READ ONLY")
                         cursor.execute("SET LOCAL statement_timeout = %s", (statement_timeout_ms,))
                         cursor.execute(
                             sql.SQL("SET LOCAL search_path TO {}").format(
                                 sql.Identifier(postgres_schema)
                             )
                         )
-                        cursor.execute(query_text)
+                        cursor.execute(normalized_or_reason)
                         row_count = len(cursor.fetchall())
                     connection.rollback()
                 except Exception as exc:  # Individual benchmark errors are audit results.
@@ -214,7 +222,11 @@ def execute_gold_sql(
         return {
             "artifact_type": "IndicDB pinned gold SQL execution audit",
             "official_benchmark_result": False,
-            "gold_sql_execution_verified": not errors,
+            "gold_sql_execution_verified": bool(records) and not errors and not unmapped_rows,
+            "mapped_gold_sql_execution_verified": bool(records) and not errors,
+            "all_nonempty_gold_rows": nonempty_gold_rows,
+            "unmapped_gold_rows": sum(unmapped_rows.values()),
+            "gold_sql_scope": "Full pinned Parquet SQL rows with a verified archive mapping; unmapped schemas are excluded",
             "semantic_correctness_verified": False,
             "statement_timeout_ms": statement_timeout_ms,
             "source_artifacts_verified": source_audit["source_artifacts_verified"],
@@ -232,6 +244,7 @@ def execute_gold_sql(
                 name: dict(metrics) for name, metrics in sorted(schema_metrics.items())
             },
             "queries_attempted": len(records),
+            "all_nonempty_gold_covered": len(records) == nonempty_gold_rows,
             "execution_error_count": len(errors),
             "empty_result_count": len(empty_results),
             "execution_errors": errors,
@@ -251,16 +264,23 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--parquet-dir", required=True, type=Path)
     parser.add_argument("--archive", required=True, type=Path)
-    parser.add_argument("--dsn", required=True)
+    parser.add_argument("--dsn", help="PostgreSQL DSN; prefer --dsn-env to avoid command-line credential exposure")
+    parser.add_argument("--dsn-env", default="INDICDB_DSN", help="Environment variable containing the private PostgreSQL DSN")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--statement-timeout-ms", type=int, default=5000)
     args = parser.parse_args()
     if args.statement_timeout_ms < 1:
         parser.error("--statement-timeout-ms must be positive.")
+    import os
+    if args.dsn and os.environ.get(args.dsn_env):
+        parser.error("Use either --dsn or --dsn-env, not both")
+    dsn = args.dsn or os.environ.get(args.dsn_env)
+    if not dsn:
+        parser.error(f"Set {args.dsn_env} (preferred) or specify --dsn")
     report = execute_gold_sql(
         parquet_root=args.parquet_dir,
         archive_path=args.archive,
-        dsn=args.dsn,
+        dsn=dsn,
         statement_timeout_ms=args.statement_timeout_ms,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -277,7 +297,7 @@ def main() -> int:
             indent=2,
         )
     )
-    return 0
+    return 0 if report["gold_sql_execution_verified"] else 2
 
 
 if __name__ == "__main__":
