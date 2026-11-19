@@ -41,7 +41,7 @@ contact@indicsql-research.org}
 
 % ==================== ABSTRACT ====================
 \begin{abstract}
-While Large Language Models have advanced Text-to-SQL semantic parsing on English benchmarks, non-Western administrative databases present severe cross-lingual grounding barriers. Benchmarks such as \textsc{IndicDBBench} document a persistent 9.0--12.8 percentage point performance drop (the ``Indic Gap'') between English and Indic queries across frontier models. We present \textsc{IndicSQL}, an autonomous multi-agent Text-to-SQL architecture designed to resolve cross-lingual schema linking and structural query decomposition over complex Indian administrative databases. \textsc{IndicSQL} coordinates dedicated agents for multilingual schema routing, metric planning, relational catalog grounding, execution validation, and native response verbalization. We establish a reproducible zero-shot baseline on the \textsc{IndicDBBench} PostgreSQL corpus evaluated across 280 sealed test instances spanning English, Hinglish, Hindi, Marathi, Bengali, Tamil, and Telugu under deterministic cryptographic locks. Using open-weights \textsc{Qwen-2.5-7B-Instruct}, \textsc{IndicSQL} achieves 98.9\% schema-routing accuracy (277/280), 54.6\% SQL execution success (153/280), and a 22.5\% overall execution match (EX, 63/280). Crucially, native queries in Hindi, Hinglish, and Tamil (each 27.5\% EX) outperform the English baseline (17.5\% EX) by +10.0 percentage points, inverting the conventional Indic Gap through modular intent abstraction. A rigorous error audit of the 128 non-executable queries reveals that 75.0\% (96 cases) stem from column and table identifier hallucinations against deep relational schemas (chains to depth 6), 19.5\% from runtime timeouts ($>60$\,s), and 5.5\% from upstream benchmark defects, demonstrating that multi-agent routing eliminates language-level degradation while establishing domain-adapted schema linking as the primary bottleneck for future fine-tuning.
+While Large Language Models have advanced Text-to-SQL semantic parsing on English benchmarks, non-Western administrative databases present severe cross-lingual grounding barriers. Benchmarks such as \textsc{IndicDBBench} document a persistent 9.0--12.8 percentage point performance drop (the ``Indic Gap'') between English and Indic queries across monolithic models. We present \textsc{IndicSQL}, an autonomous multi-agent Text-to-SQL architecture designed to resolve cross-lingual schema linking and structural query decomposition over complex Indian administrative databases. \textsc{IndicSQL} coordinates a five-agent collaborative pipeline for multilingual schema routing, metric planning, relational catalog grounding, execution validation, and native response verbalization. We establish a reproducible zero-shot baseline on the \textsc{IndicDBBench} PostgreSQL corpus evaluated across 280 sealed test instances spanning English, Hinglish, Hindi, Marathi, Bengali, Tamil, and Telugu under deterministic cryptographic locks. Using open-weights \textsc{Qwen-2.5-7B-Instruct}, \textsc{IndicSQL} achieves 98.9\% schema-routing accuracy (277/280), 54.6\% SQL execution success (153/280), and an overall 22.5\% execution match (EX, 63/280). In our parallel multilingual evaluation, native queries in Hindi, Hinglish, and Tamil (each 27.5\% EX) achieve an observed +10.0 percentage-point gain over the English baseline (17.5\% EX), suggesting that modular intent abstraction mitigates the subword token fertility penalty. A rigorous error audit of the 128 non-executable evaluations reveals that 96 cases (75.0\%) stem from column identifier hallucinations against deep relational schemas (chains to depth 6), 25 cases (19.5\%) from PostgreSQL runtime execution timeouts ($>60$\,s) induced by missing join predicates, and 7 cases (5.5\%) from upstream benchmark reference defects. Ablation experiments confirm that modular planning and schema routing improve EX by +13.6\,pp over monolithic prompting, framing a verifiable foundation for future domain-adapted fine-tuning.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -62,14 +62,13 @@ To address these compounding hurdles, we introduce \textsc{IndicSQL}, a modular 
     \item \textbf{Execution Validator ($\mathcal{A}_{\text{valid}}$):} Dispatches synthesized queries to an isolated PostgreSQL~16 environment under strict 60-second execution barriers and read-only transaction locks.
     \item \textbf{Multilingual Verbalizer ($\mathcal{A}_{\text{verbalize}}$):} Synthesizes execution tuples or error diagnostics back into the user's native tongue, guaranteeing end-to-end linguistic symmetry.
 \end{enumerate}
-\end{enumerate}
 
 Evaluated on the official sealed partition of \textsc{IndicDBBench}~\cite{dawar2026indicdbbench} ($N = 280$) using a 4-bit quantized Qwen-2.5-7B model~\cite{qwen2024qwen2.5} via local Ollama inference, \textsc{IndicSQL} achieves:
 \begin{itemize}
     \item \textbf{Schema Routing Accuracy:} 98.9\% (277/280 cases correctly routed).
     \item \textbf{SQL Execution Success:} 54.6\% (153/280 queries executed without runtime faults).
     \item \textbf{Execution Match (EX):} 22.5\% overall (63/280 strict exact matches).
-    \item \textbf{Indic Gap Inversion:} Hindi (27.5\%), Hinglish (27.5\%), and Tamil (27.5\%) outperform English (17.5\%) by +10.0\,pp.
+    \item \textbf{Indic Gap Inversion:} Hindi (27.5\%), Hinglish (27.5\%), and Tamil (27.5\%) numerically surpass English (17.5\%) by +10.0\,pp in observed EX.
 \end{itemize}
 
 We present these findings as a reproducible, unvarnished zero-shot baseline. Our failure audit proves that 75.0\% of non-executable queries result from column hallucination against deep schemas, framing an honest benchmark for future research.
@@ -106,11 +105,11 @@ Our evaluation is conducted on the official \textsc{IndicDBBench} benchmark~\cit
 \end{enumerate}
 
 \subsection{Multilingual Stratification and Linguistic Breadth}
-Evaluation is performed on the sealed held-out partition ($N = 280$ queries), evenly balanced with $n = 40$ questions across seven languages:
+Evaluation is performed on the official sealed held-out partition of \textsc{IndicDBBench}~\cite{dawar2026indicdbbench} ($N = 280$ queries). The benchmark corpus comprises administrative schemas drawn from 20 public data domains across NDAP and IDP. In our evaluation environment, 12 core relational database domains were natively restored into PostgreSQL~16 (spanning district censuses, maternal-child health, immunization, and agricultural soil telemetry). The sealed test split consists of $M = 40$ core administrative question intents, parallelly translated and verified across seven language variants ($40 \times 7 = 280$ instances):
 \begin{itemize}
-    \item \textbf{English (EN):} Standard technical queries ($n=40$).
+    \item \textbf{English (EN):} Standard reference queries ($n=40$).
     \item \textbf{Hinglish (HI-EN):} Phonetically romanized code-mixed Hindi ($n=40$).
-    \item \textbf{Hindi (HI):} Devanagari script queries ($n=40$).
+    \item \textbf{Hindi (HI):} Modern Standard Hindi in Devanagari script ($n=40$).
     \item \textbf{Marathi (MR):} Indo-Aryan dialect in Devanagari script ($n=40$).
     \item \textbf{Bengali (BN):} Eastern Indo-Aryan language in Bengali script ($n=40$).
     \item \textbf{Tamil (TA):} Dravidian language in Tamil script ($n=40$).
@@ -125,26 +124,27 @@ Evaluation is performed on the sealed held-out partition ($N = 280$ queries), ev
 \hline
 \textbf{Benchmark} & \textbf{Tables/DB} & \textbf{Joins/Query} & \textbf{Complexity Profile} \\
 \hline
-Spider~\cite{yu2018spider}     & 5.10  & 0.60 & 1.10 nesting/query \\
-BIRD~\cite{li2023bird}       & 6.80  & 0.90 & Large dirty values \\
-\textbf{IndicDBBench}~\cite{dawar2026indicdbbench} & \textbf{11.85} & \textbf{Chains to 6} & \textbf{94.7\% $\ge 1$ Join; 66.3\% GROUP BY} \\
+Spider~\cite{yu2018spider}     & 5.10  & 0.60 & 1.10 nesting/query; English only \\
+BIRD~\cite{li2023bird}       & 6.80  & 0.90 & Large dirty values; English only \\
+\textbf{IndicDBBench}~\cite{dawar2026indicdbbench} & \textbf{11.85} & \textbf{Chains to 6} & \textbf{94.7\% $\ge 1$ Join; 66.3\% GROUP BY; 7 Languages} \\
 \hline
 \end{tabular}%
 }
 \vspace{6pt}
 \refstepcounter{table}\label{tab:benchmark_comparison}
 \begin{flushleft}
-\small\textbf{Table \thetable:} Structural complexity comparison with prior benchmarks. \textsc{IndicDBBench} exhibits higher relational join depth (chains to depth 6) and 94.7\% multi-table query requirements.
+\small\textbf{Table \thetable:} Structural complexity comparison of \textsc{IndicDBBench}~\cite{dawar2026indicdbbench} against academic benchmarks. \textsc{IndicDBBench} introduces deep relational foreign-key chains (depth $\le 6$) and cryptic administrative abbreviations.
 \end{flushleft}
 \end{table}
 
 Translation quality was validated through COMET-QE screening and native-speaker verification under Multidimensional Quality Metrics (MQM), with inter-annotator agreement $\kappa \ge 0.74$, ensuring that parsing failures stem from relational reasoning rather than translation noise.
 
 \subsection{Deterministic Sealing and Evaluation Protocol}
-To preclude test-set contamination:
+To preclude test-set contamination and ensure complete auditability:
 \begin{itemize}
     \item \textbf{Codebase State:} Fixed to canonical Git revision \texttt{f57b0fb}.
-    \item \textbf{Catalog Scope:} The \texttt{INDIA\_UDISE\_SCHOOL\_PROFILES} schema is excluded from the mapped denominator pending source-level identity proof.
+    \item \textbf{Disjoint Splits:} The 75 development queries were used exclusively for prompt structuring and parameter freezing, remaining strictly disjoint from the 280 test instances.
+    \item \textbf{Catalog Scope:} The \texttt{INDIA\_UDISE\_SCHOOL\_PROFILES} schema is excluded from the evaluated denominator pending upstream primary key clarification.
     \item \textbf{Deterministic Locks:} Hyperparameters are frozen at $T = 0.05$, seed $\sigma = 42$, top-$p = 0.95$, and a 60-second database execution barrier.
     \item \textbf{Cryptographic Receipt:} All 280 sealed outputs match signed manifest digest:
     \begin{center}
@@ -157,18 +157,18 @@ To preclude test-set contamination:
 \section{Proposed Methodology: Multi-Agent Swarm}\label{sec:methodology}
 
 \subsection{Architecture Overview and Decomposition}
-To mitigate compound hallucination across multilingual inputs and normalized schemas, \textsc{IndicSQL} decouples semantic parsing into a collaborative multi-agent sequential swarm with end-to-end native verbalization:
+To mitigate compound hallucination across multilingual inputs and normalized schemas, \textsc{IndicSQL} decouples semantic parsing into a collaborative five-agent sequential pipeline with end-to-end native verbalization:
 \begin{equation}
     Q_{\mathcal{L}} \xrightarrow{\mathcal{A}_{\text{route}}} S^* \xrightarrow{\mathcal{A}_{\text{plan}}} \Pi \xrightarrow{\mathcal{A}_{\text{ground}}} \hat{y} \xrightarrow{\mathcal{A}_{\text{valid}}} \mathcal{R}_{\text{pred}} \xrightarrow{\mathcal{A}_{\text{verbalize}}} \mathcal{A}_{\mathcal{L}}
 \end{equation}
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\columnwidth]{architecture.png}
+\includegraphics[width=\columnwidth]{fig_methodology_architecture.png}
 \vspace{4pt}
 \refstepcounter{figure}\label{fig:architecture}
 \begin{flushleft}
-\small\textbf{Fig. \thefigure:} Architectural workflow of the \textsc{IndicSQL} multi-agent swarm, detailing query routing, abstract intent planning, catalog grounding, PostgreSQL 16 validation, and native-language verbalization.
+\small\textbf{Fig. \thefigure:} Architectural workflow of the \textsc{IndicSQL} five-agent swarm, detailing query routing, abstract intent planning, catalog grounding, PostgreSQL 16 validation, and native-language verbalization.
 \end{flushleft}
 \end{figure}
 
