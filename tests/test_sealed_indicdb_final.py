@@ -1,7 +1,7 @@
 import unittest
 
 from scripts.build_sealed_indicdb_final import REQUIRED_LANGUAGES, build_selection
-from scripts.evaluate_indicdb_sealed_final import selected_key_digest
+from scripts.evaluate_indicdb_sealed_final import selected_key_digest, schema_route_correct
 from scripts.lock_indicdb_final_run import canonical_hash
 
 
@@ -28,6 +28,18 @@ class TestSealedIndicDBFinalSelection(unittest.TestCase):
     def test_router_does_not_coerce_invalid_model_answer(self):
         # The evaluator records an invalid response as a failure rather than using gold metadata.
         self.assertIsNone(_exact_schema_name("INDIA_NOT_A_RELEASED_SCHEMA", ["INDIA_A"]))
+
+    def test_schema_route_correct_requires_gold_identity_not_only_valid_name(self):
+        mappings = {
+            "BENCH_A": {"postgres_schema_name": "bench_a"},
+            "BENCH_A_": {"postgres_schema_name": "bench_a"},
+            "BENCH_B": {"postgres_schema_name": "bench_b"},
+        }
+        self.assertTrue(schema_route_correct("BENCH_A", "BENCH_A", mappings))
+        self.assertTrue(schema_route_correct("BENCH_A", "BENCH_A_", mappings))
+        self.assertFalse(schema_route_correct("BENCH_B", "BENCH_A", mappings))
+        self.assertFalse(schema_route_correct(None, "BENCH_A", mappings))
+        self.assertFalse(schema_route_correct("BENCH_A", "MISSING", mappings))
 
     def test_selected_key_digest_ignores_pretty_printing(self):
         keys = [{"pair_id": "p", "dataset_name": "INDIA_A"}]

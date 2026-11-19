@@ -1,0 +1,129 @@
+name: Execute official IndicDB PostgreSQL gold SQL audit
+
+# Runs on the research branch only. Never publishes credentials, gold SQL, or raw data.
+on:
+  push:
+    branches:
+      - research/evaluation-integrity-audit
+    paths:
+      - .github/workflows/official-indicdb-gold-audit.yml
+      - scripts/execute_indicdb_gold.py
+      - scripts/verify_indicdb_sources.py
+      - scripts/preflight_indicdb_benchmark.py
+      - data/benchmarks/indicdb_source_manifest.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  official-postgresql-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: indicdb
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local-audit-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d indicdb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      INDICDB_DSN: postgresql://postgres:local-audit-only@127.0.0.1:5432/indicdb
+      PGPASSWORD: local-audit-only
+      HF_HUB_DISABLE_XET: "1"
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install audit dependencies and PostgreSQL restore client
+        run: |
+          python -m pip install -e '.[dev,indicdb]' gdown huggingface_hub
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+      - name: Download pinned IndicDB language splits
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from huggingface_hub import hf_hub_download
+          manifest = json.loads(Path('data/benchmarks/indicdb_source_manifest.json').read_text(encoding='utf-8'))
+          for record in manifest['benchmark']['files'].values():
+              path = Path('official_artifacts/parquets') / record['path']
+              path.parent.mkdir(parents=True, exist_ok=True)
+              hf_hub_download(
+                  repo_id=manifest['benchmark']['repo_id'],
+                  repo_type='dataset',
+                  filename=record['path'],
+                  revision=manifest['benchmark']['revision'],
+                  local_dir='official_artifacts/parquets',
+              )
+          PY
+      - name: Fetch released PostgreSQL archive
+        run: |
+          mkdir -p official_artifacts
+          gdown 'https://drive.google.com/uc?id=1PfZN0HAyoPtJ_Ef6YLd3of5YBj24z131' --output official_artifacts/indicDB.zip
+          python - <<'PY'
+          import json
+          import hashlib
+          from pathlib import Path
+          from zipfile import ZipFile
+          manifest = json.loads(Path('data/benchmarks/indicdb_source_manifest.json').read_text(encoding='utf-8'))
+          archive_path = Path('official_artifacts/indicDB.zip')
+          observed = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+          expected = manifest['official_source_archive']['local_sha256']
+          if observed != expected:
+              raise ValueError(f'Official archive hash mismatch (expected {expected}; observed {observed})')
+          with ZipFile(archive_path) as archive:
+              output = Path('official_artifacts/indicDB.dump')
+              with archive.open(manifest['postgresql_dump']['source_archive_member']) as src, output.open('wb') as dst:
+                  import shutil
+                  shutil.copyfileobj(src, dst)
+          dump_hash = hashlib.sha256(Path('official_artifacts/indicDB.dump').read_bytes()).hexdigest()
+          if dump_hash != manifest['postgresql_dump']['local_sha256']:
+              raise ValueError('Official PostgreSQL dump SHA-256 mismatch')
+          print('Official archive and dump hashes verified')
+          PY
+      - name: Restore official pinned dump to PostgreSQL 18
+        run: |
+          pg_restore --version
+          psql --host=127.0.0.1 --username=postgres --dbname=indicdb --no-psqlrc -Atc 'SHOW server_version;'
+          pg_restore --host=127.0.0.1 --port=5432 --username=postgres --dbname=indicdb --no-owner --no-privileges --exit-on-error official_artifacts/indicDB.dump
+      - name: Execute every mapped gold SQL query
+        run: |
+          mkdir -p benchmark_results/official_gold
+          python scripts/execute_indicdb_gold.py \
+            --parquet-dir official_artifacts/parquets \
+            --archive official_artifacts/indicDB.zip \
+            --statement-timeout-ms 60000 \
+            --output benchmark_results/official_gold/full_gold_audit.json
+      - name: Print audit summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path=Path('benchmark_results/official_gold/full_gold_audit.json')
+          if not path.is_file():
+              print('Audit file unavailable: download, restore, or run failed')
+          else:
+              a=json.loads(path.read_text(encoding='utf-8'))
+              for k in ['source_artifacts_verified','queries_attempted','execution_error_count','empty_result_count','unmapped_gold_rows','gold_sql_execution_verified','mapped_gold_sql_execution_verified']:
+                  print(f'{k}: {a.get(k)}')
+          PY
+      - name: Upload audit evidence (no dump/data)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-indicdb-gold-execution-audit
+          path: benchmark_results/official_gold/full_gold_audit.json
+          if-no-files-found: ignore

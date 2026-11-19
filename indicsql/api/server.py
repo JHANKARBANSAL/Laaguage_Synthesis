@@ -3,6 +3,7 @@ FastAPI Server Gateway for IndicSQL Swarm.
 Exposes endpoints for natural language queries, schema inspection, and benchmark execution.
 """
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -25,8 +26,8 @@ app = FastAPI(
 # Enable CORS for local frontend clients
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=[origin.strip() for origin in os.environ.get("INDICSQL_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",") if origin.strip()],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -35,12 +36,13 @@ app.add_middleware(
 class QueryRequest(BaseModel):
     query: str = Field(..., description="Natural language question in Indic language or Hinglish")
     session_id: Optional[str] = Field(
-        default=None, description="Optional persistent session identifier"
+        default=None, max_length=128, description="Optional request correlation identifier; does not imply persistent conversation memory"
     )
 
 
 class QueryResponse(BaseModel):
     query_id: str
+    session_id: Optional[str] = None
     raw_query: str
     detected_language: str
     detected_script: str
@@ -83,7 +85,7 @@ def list_schemas():
     tables = NDAPCatalog.list_tables()
     return {
         "count": len(tables),
-        "tables": {t: NDAPCatalog.get_table_schema(t) for t in tables},
+        "tables": {t: {"table_name": t, **NDAPCatalog.get_table_schema(t)} for t in tables},
     }
 
 
@@ -96,6 +98,8 @@ def run_query(request: QueryRequest):
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
 
+    # Correlate requests without promising stateful memory or chat persistence.
+    session_id = request.session_id.strip() if request.session_id else None
     result_state = execute_indicsql_pipeline(
         request.query,
         interactive_defaults=True,
@@ -103,6 +107,7 @@ def run_query(request: QueryRequest):
 
     return QueryResponse(
         query_id=result_state.get("query_id", ""),
+        session_id=session_id,
         raw_query=result_state.get("raw_query", ""),
         detected_language=result_state.get("detected_lang", "unknown"),
         detected_script=result_state.get("detected_script", "unknown"),

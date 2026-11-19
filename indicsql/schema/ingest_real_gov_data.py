@@ -983,12 +983,23 @@ def build_real_gram_panchayat_finance() -> pd.DataFrame:
 # =============================================================================
 
 def ingest_all_20_ndap_databases(
-    api_key: Optional[str] = None, parquet_dir: Path = PARQUET_DIR
+    api_key: Optional[str] = None,
+    parquet_dir: Path = PARQUET_DIR,
+    *,
+    allow_modeled_data: bool = False,
 ) -> Dict[str, int]:
+    """Build a mixed-source development catalog.
+
+    Most builder functions estimate values from regional aggregates or create
+    modeled/synthetic district-level records. They are NOT direct authentic
+    observations and MUST NOT be used as official IndicDB evaluation data.
     """
-    Downloads, compiles, and saves authentic Government of India open datasets
-    for all 20 NDAP benchmark tables into parquet stores.
-    """
+    if not allow_modeled_data:
+        raise ValueError(
+            "This ingestion path mixes real source records with modeled or synthetic values. "
+            "Pass allow_modeled_data=True only for local development; "
+            "use the pinned official IndicDB PostgreSQL dump for research evaluation."
+        )
     key = api_key or DEFAULT_DATA_GOV_KEY
     parquet_dir.mkdir(parents=True, exist_ok=True)
     summary: Dict[str, int] = {}
@@ -1021,7 +1032,7 @@ def ingest_all_20_ndap_databases(
     ]
 
     print(f"\n===========================================================================")
-    print(f"🇮🇳 IndicSQL Authentic Data Ingestion: 20 NDAP Benchmark Databases")
+    print(f"IndicSQL MIXED-SOURCE development data ingestion (NOT official IndicDB benchmark)")
     print(f"   Target Directory: {parquet_dir}")
     print(f"===========================================================================\n")
 
@@ -1031,7 +1042,7 @@ def ingest_all_20_ndap_databases(
             target_path = parquet_dir / f"{table_name}.parquet"
             df.to_parquet(target_path, index=False)
             summary[table_name] = len(df)
-            print(f"✅ Ingested {len(df):>7} records -> {target_path.name}")
+            print(f"Saved {len(df):>7} mixed-source/development records -> {target_path.name}")
         except Exception as e:
             logger.error(f"Error ingesting table {table_name}: {e}")
             print(f"❌ Failed to ingest {table_name}: {e}")

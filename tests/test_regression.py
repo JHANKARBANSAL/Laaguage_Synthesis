@@ -15,6 +15,7 @@ from indicsql.schema.entity_grounder import dynamic_entity_grounder
 from indicsql.sandbox.duckdb_engine import DuckDBSandbox
 from indicsql.benchmark.dataset import BenchmarkQuery
 from indicsql.benchmark.evaluator import are_tabular_results_equivalent
+from indicsql.schema.ingest_ndap import _generate_table_rows
 
 
 class TestFalseDistrictCollisionRegression(unittest.TestCase):
@@ -195,45 +196,54 @@ class TestSQLExecutionRegression(unittest.TestCase):
     def setUp(self):
         self.sandbox = DuckDBSandbox()
 
+    @staticmethod
+    def _fixture_farmer_total(state_name: str) -> int:
+        """Expected result from fixture rows, not official government figures."""
+        return sum(
+            row["farmer_beneficiaries"]
+            for row in _generate_table_rows("ndap_pm_kisan_disbursement")
+            if row["state_name"] == state_name
+        )
+
     def test_up_pm_kisan_sql_execution(self):
-        # Ground truth PM-Kisan total for Uttar Pradesh
+        # Deterministic synthetic-fixture PM-Kisan total for Uttar Pradesh
         sql = "SELECT SUM(farmer_beneficiaries) AS total_farmers FROM ndap_pm_kisan_disbursement WHERE state_name = 'UTTAR PRADESH';"
         res = self.sandbox.execute_query(sql)
         self.assertIsNotNone(res)
         rows = res.get("rows") if isinstance(res, dict) else res.rows
-        self.assertEqual(rows[0][0], 14_623_899)
+        self.assertEqual(rows[0][0], self._fixture_farmer_total("UTTAR PRADESH"))
 
     def test_maharashtra_pm_kisan_sql_execution(self):
-        # Ground truth PM-Kisan total for Maharashtra
+        # Deterministic synthetic-fixture PM-Kisan total for Maharashtra
         sql = "SELECT SUM(farmer_beneficiaries) AS total_farmers FROM ndap_pm_kisan_disbursement WHERE state_name = 'MAHARASHTRA';"
         res = self.sandbox.execute_query(sql)
         self.assertIsNotNone(res)
         rows = res.get("rows") if isinstance(res, dict) else res.rows
-        self.assertEqual(rows[0][0], 15_981_882)
+        self.assertEqual(rows[0][0], self._fixture_farmer_total("MAHARASHTRA"))
 
     def test_tamil_nadu_pm_kisan_sql_execution(self):
-        # Ground truth PM-Kisan total for Tamil Nadu
+        # Deterministic synthetic-fixture PM-Kisan total for Tamil Nadu
         sql = "SELECT SUM(farmer_beneficiaries) AS total_farmers FROM ndap_pm_kisan_disbursement WHERE state_name = 'TAMIL NADU';"
         res = self.sandbox.execute_query(sql)
         self.assertIsNotNone(res)
         rows = res.get("rows") if isinstance(res, dict) else res.rows
-        self.assertEqual(rows[0][0], 12_542_755)
+        self.assertEqual(rows[0][0], self._fixture_farmer_total("TAMIL NADU"))
 
     def test_west_bengal_pm_kisan_sql_execution(self):
-        # Ground truth PM-Kisan total for West Bengal
+        # Deterministic synthetic-fixture PM-Kisan total for West Bengal
         sql = "SELECT SUM(farmer_beneficiaries) AS total_farmers FROM ndap_pm_kisan_disbursement WHERE state_name = 'WEST BENGAL';"
         res = self.sandbox.execute_query(sql)
         self.assertIsNotNone(res)
         rows = res.get("rows") if isinstance(res, dict) else res.rows
-        self.assertEqual(rows[0][0], 12_912_117)
+        self.assertEqual(rows[0][0], self._fixture_farmer_total("WEST BENGAL"))
 
     def test_andhra_pradesh_pm_kisan_sql_execution(self):
-        # Ground truth PM-Kisan total for Andhra Pradesh
+        # Deterministic synthetic-fixture PM-Kisan total for Andhra Pradesh
         sql = "SELECT SUM(farmer_beneficiaries) AS total_farmers FROM ndap_pm_kisan_disbursement WHERE state_name = 'ANDHRA PRADESH';"
         res = self.sandbox.execute_query(sql)
         self.assertIsNotNone(res)
         rows = res.get("rows") if isinstance(res, dict) else res.rows
-        self.assertEqual(rows[0][0], 10_256_870)
+        self.assertEqual(rows[0][0], self._fixture_farmer_total("ANDHRA PRADESH"))
 
 
 if __name__ == "__main__":

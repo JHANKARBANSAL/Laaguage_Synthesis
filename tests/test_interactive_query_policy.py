@@ -3,6 +3,7 @@ import unittest
 from indicsql.benchmark.evaluator import are_tabular_results_equivalent
 from indicsql.models.interactive_query_policy import apply_interactive_query_defaults
 from indicsql.sandbox.duckdb_engine import DuckDBSandbox
+from indicsql.schema.ingest_ndap import _generate_table_rows
 
 
 class TestInteractiveQueryPolicy(unittest.TestCase):
@@ -28,7 +29,12 @@ class TestInteractiveQueryPolicy(unittest.TestCase):
             "WHERE state_name = 'BIHAR' AND financial_year = '2024-25';"
         )
         self.assertTrue(are_tabular_results_equivalent(actual, expected))
-        self.assertEqual(actual["rows"][0][0], 3296028)
+        expected_fixture = sum(
+            row["farmer_beneficiaries"]
+            for row in _generate_table_rows("ndap_pm_kisan_disbursement")
+            if row["state_name"] == "BIHAR" and row["financial_year"] == "2024-25"
+        )
+        self.assertEqual(actual["rows"][0][0], expected_fixture)
 
     def test_explicit_farmer_financial_year_is_preserved(self):
         sql = (
@@ -108,7 +114,12 @@ class TestInteractiveQueryPolicy(unittest.TestCase):
         self.assertEqual(len(defaults), 2)
 
         result = self.sandbox.execute_query(sql)
-        self.assertEqual(result["row_count"], 7)
+        expected_districts = {
+            row["district_name"]
+            for row in _generate_table_rows("ndap_education_stats")
+            if row["state_name"] == "BIHAR" and row["census_year"] == 2024
+        }
+        self.assertEqual(result["row_count"], len(expected_districts))
         self.assertTrue(all(row[1] == 2024 for row in result["rows"]))
 
     def test_unspecified_literacy_gender_returns_both_rates_by_district(self):

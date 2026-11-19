@@ -806,7 +806,7 @@ LIMIT 1;</pre>
         if (response.ok) {
           const data = await response.json();
           // Real live data from FastAPI Backend, Ollama & DuckDB
-          ansCard.innerHTML = `"${data.verbalized_response}"`;
+          ansCard.textContent = `"${data.verbalized_response || ""}"`;
           const cleanFormatted = formatSQL(data.generated_sql);
           sqlPre.innerText = cleanFormatted;
 
@@ -836,29 +836,29 @@ LIMIT 1;</pre>
           if (pActive) pActive.innerText = q;
 
           const n1Desc = document.getElementById('pipeline-node-1-desc');
-          if (n1Desc) n1Desc.innerHTML = `Detected Language: <code class="bg-white px-1.5 py-0.5 rounded border font-bold text-slate-800">${data.detected_language || 'Indic'}</code> | Script: <code class="bg-white px-1.5 py-0.5 rounded border font-bold text-slate-800">${data.detected_script || 'Native'}</code> | Fast-track routing.`;
+          if (n1Desc) n1Desc.textContent = `Detected Language: ${data.detected_language || 'Indic'} | Script: ${data.detected_script || 'Native'}`;
 
           const n2Desc = document.getElementById('pipeline-node-2-desc');
           if (n2Desc) {
             const cols = step2 && step2.matched_columns ? step2.matched_columns.join(', ') : 'columns';
-            n2Desc.innerHTML = `Mapped table: <code class="bg-white px-1.5 py-0.5 rounded border font-bold text-slate-800">${tbl}</code> | Target Columns: <code class="bg-white px-1.5 py-0.5 rounded border font-bold text-slate-800">${cols}</code> | Zero-Cloud Lookup.`;
+            n2Desc.textContent = `Mapped table: ${tbl} | Target columns: ${cols}`;
           }
 
           const n4Desc = document.getElementById('pipeline-node-4-desc');
           if (n4Desc) {
-            n4Desc.innerHTML = `Deterministic AST Guardrails applied safely: <code class="bg-white px-1.5 py-0.5 rounded border font-mono text-[11px] text-emerald-800">${data.generated_sql.length > 70 ? data.generated_sql.substring(0, 70) + '...' : data.generated_sql}</code>`;
+            n4Desc.textContent = `SQL AST validation: ${String(data.generated_sql || '').slice(0, 70)}`;
           }
 
           const n5Desc = document.getElementById('pipeline-node-5-desc');
           if (n5Desc && data.execution_result) {
             const rowCount = data.execution_result.row_count || (data.execution_result.rows ? data.execution_result.rows.length : 0);
-            const execMs = (data.execution_result.execution_time_ms || 12).toFixed(1);
-            n5Desc.innerHTML = `Executed query against local DuckDB in <code class="bg-white px-1.5 py-0.5 rounded border font-bold text-amber-700">${execMs} ms</code>. Returned <code class="bg-white px-1.5 py-0.5 rounded border font-bold text-slate-800">${rowCount} row(s)</code>.`;
+            const execMs = Number(data.execution_result.execution_time_ms ?? 0).toFixed(1);
+            n5Desc.textContent = `Executed in ${execMs} ms; returned ${rowCount} rows.`;
           }
 
           const n6Desc = document.getElementById('pipeline-node-6-desc');
           if (n6Desc) {
-            n6Desc.innerHTML = `Formulated localized response: <span class="font-semibold text-slate-800">"${data.verbalized_response}"</span>`;
+            n6Desc.textContent = `Localized response: ${data.verbalized_response || ''}`;
           }
 
           // Render live DuckDB rows and dynamic headers into Inspector table
@@ -872,71 +872,61 @@ LIMIT 1;</pre>
           throw new Error('API returned status ' + response.status);
         }
       } catch (err) {
-        console.warn('Live API call failed or offline, using client fallback:', err);
-        // Fallback to client sample data
-        if (q.includes('महिला साक्षरता') || q.includes('female literacy') || q.includes('கல்வியறிவு')) {
-          ansCard.innerHTML = '"बिहार में <strong class="text-indigo-600 font-bold">पूर्णिया (Purnia)</strong> जिले में महिला साक्षरता दर सबसे कम (<strong class="text-amber-600 font-bold">62.2%</strong>) दर्ज की गई।"';
-          sqlPre.innerText = "SELECT district_name, female_literacy_rate\nFROM ndap_education_stats\nWHERE state_name = 'BIHAR'\nORDER BY female_literacy_rate ASC\nLIMIT 1;";
-        } else if (q.includes('मनरेगा') || q.includes('मराठी') || q.includes('मनुष्यदिन')) {
-          ansCard.innerHTML = '"महाराष्ट्रात मनरेगा अंतर्गत एकूण <strong class="text-indigo-600 font-bold">42.5 लाख</strong> मनुष्यदिन निर्माण झाले आहेत."';
-          sqlPre.innerText = "SELECT SUM(total_mandays_generated) AS total_mandays\nFROM ndap_mgnrega_employment\nWHERE state_name = 'MAHARASHTRA';";
-        } else if (q.includes('PM-Kisan') || q.includes('beneficiaries') || q.includes('farmers')) {
-          ansCard.innerHTML = '"उत्तर प्रदेशात सर्वाधिक शेतकरी लाभार्थी <strong class="text-indigo-600 font-bold">प्रयागराज आणि लखीमपूर</strong> जिल्ह्यात नोंदवले गेले."';
-          sqlPre.innerText = "SELECT district_name, farmer_beneficiaries\nFROM ndap_pm_kisan_disbursement\nWHERE state_name = 'UTTAR PRADESH'\nORDER BY farmer_beneficiaries DESC\nLIMIT 5;";
-        } else {
-          ansCard.innerHTML = '"प्रश्न प्रक्रिया पूर्ण झाली. डेटाबेस परिणाम यशस्वीरित्या लोड झाला आहे."';
-          sqlPre.innerText = "SELECT * FROM ndap_pm_kisan_disbursement LIMIT 5;";
-        }
+        console.error('IndicSQL API error:', err);
+        ansCard.textContent = 'Query failed; no database result was produced.';
+        sqlPre.textContent = '';
       }
 
       // Scroll to result card smoothly
       document.getElementById('home-result-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
-    // Dynamic Render for Live DuckDB Table (Header & Body)
+    // Database results are untrusted text, not executable HTML.
     function renderDuckDBTable(result) {
       const thead = document.getElementById('inspector-table-head');
       const tbody = document.getElementById('inspector-table-body') || document.querySelector('#view-inspector tbody');
-      if (!tbody || !result.rows || result.rows.length === 0) return;
-
-      if (thead && result.columns && result.columns.length > 0) {
-        let thHtml = '<tr>';
-        result.columns.forEach(col => {
-          thHtml += `<th class="py-2.5 px-4 font-bold text-slate-700">${col}</th>`;
+      if (!tbody || !Array.isArray(result.rows)) return;
+      if (thead) {
+        thead.replaceChildren();
+        const tr = document.createElement('tr');
+        [...(result.columns || []), 'status'].forEach(name => {
+          const th = document.createElement('th');
+          th.textContent = String(name ?? '');
+          tr.appendChild(th);
         });
-        thHtml += '<th class="py-2.5 px-4 font-bold text-slate-700">status</th></tr>';
-        thead.innerHTML = thHtml;
+        thead.appendChild(tr);
       }
-
-      let html = '';
+      tbody.replaceChildren();
       result.rows.forEach(row => {
-        html += '<tr class="hover:bg-slate-50">';
-        row.forEach((cell, idx) => {
-          let displayVal = cell;
-          if (typeof cell === 'number') {
-            displayVal = Number.isInteger(cell) ? cell.toLocaleString() : cell.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          }
-          html += `<td class="py-2.5 px-4 font-mono ${idx === 0 ? 'font-bold text-slate-800' : 'text-indigo-600'}">${displayVal}</td>`;
+        const tr = document.createElement('tr');
+        row.forEach(value => {
+          const td = document.createElement('td');
+          td.className = 'py-2.5 px-4 font-mono';
+          td.textContent = String(value ?? '');
+          tr.appendChild(td);
         });
-        html += '<td class="py-2.5 px-4"><span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Live DuckDB</span></td></tr>';
+        const td = document.createElement('td');
+        td.textContent = 'Executed';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
       });
-      tbody.innerHTML = html;
     }
 
-    // Dynamic Query History Log
     function addQueryToHistory(data) {
       const tbody = document.querySelector('#view-history tbody');
       if (!tbody) return;
       const tr = document.createElement('tr');
-      tr.className = 'hover:bg-slate-50 animate-pulse';
-      tr.innerHTML = `
-        <td class="py-2.5 px-4 font-mono text-indigo-600 font-bold">${data.query_id || 'live-q'}</td>
-        <td class="py-2.5 px-4 font-medium">${data.raw_query}</td>
-        <td class="py-2.5 px-4">${data.detected_language || 'Indic'}</td>
-        <td class="py-2.5 px-4 font-mono text-slate-500">ndap_sandbox</td>
-        <td class="py-2.5 px-4"><span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold">LIVE PASS</span></td>
-        <td class="py-2.5 px-4"><button onclick="setQueryAndExecute('${data.raw_query}')" class="text-indigo-600 hover:underline">Re-run</button></td>
-      `;
+      [data.query_id, data.raw_query, data.detected_language, 'ndap_sandbox', data.execution_status || 'unknown'].forEach(value => {
+        const td = document.createElement('td');
+        td.textContent = String(value ?? '');
+        tr.appendChild(td);
+      });
+      const actionCell = document.createElement('td');
+      const rerun = document.createElement('button');
+      rerun.textContent = 'Re-run';
+      rerun.addEventListener('click', () => setQueryAndExecute(String(data.raw_query || '')));
+      actionCell.appendChild(rerun);
+      tr.appendChild(actionCell);
       tbody.prepend(tr);
     }
 

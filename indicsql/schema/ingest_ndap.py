@@ -4,6 +4,7 @@ Generates realistic benchmark data aligned with Government of India NDAP statist
 and exports clean, compressed Apache Parquet tables and DDL catalog definitions for all 20 databases.
 """
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Dict, List
@@ -11,6 +12,14 @@ from typing import Any, Dict, List
 import pandas as pd
 
 from indicsql.schema.catalog import NDAPCatalog
+
+def _stable_hash(value: object) -> int:
+    """Stable synthetic-fixture integer, independent of PYTHONHASHSEED.
+
+    These generated values are demonstrations, not sourced government observations.
+    """
+    return int.from_bytes(hashlib.sha256(str(value).encode("utf-8")).digest()[:8], "big")
+
 
 # Directory targets
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
@@ -26,6 +35,7 @@ INDIAN_GEOGRAPHY = {
     "WEST BENGAL": ["Kolkata", "Murshidabad", "Howrah", "Darjeeling", "Nadia"],
     "KARNATAKA": ["Bengaluru Rural", "Mysuru", "Belagavi", "Dharwad", "Kalaburagi"],
     "GUJARAT": ["Ahmedabad", "Surat", "Rajkot", "Vadodara", "Mehsana"],
+    "HARYANA": ["Ambala", "Gurugram", "Rewari", "Hisar", "Karnal", "Rohtak"],
     "ANDHRA PRADESH": ["Visakhapatnam", "Vijayawada", "Guntur", "Kurnool", "Nellore"],
     "RAJASTHAN": ["Jaipur", "Jodhpur", "Kota", "Bikaner", "Udaipur"],
     "MADHYA PRADESH": ["Bhopal", "Indore", "Gwalior", "Jabalpur", "Ujjain"],
@@ -43,7 +53,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
         for state, districts in INDIAN_GEOGRAPHY.items():
             for dist in districts:
                 for fy in FINANCIAL_YEARS:
-                    base_farmers = 200_000 + (hash(f"{state}_{dist}") % 1_500_000)
+                    base_farmers = 200_000 + (_stable_hash(f"{state}_{dist}") % 1_500_000)
                     amt = float(base_farmers * 6_000)  # PM-KISAN ₹6,000 per beneficiary
                     rows.append(
                         {
@@ -67,8 +77,8 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
             for dist in districts:
                 for year in CALENDAR_YEARS:
                     for crop, season in crops:
-                        area = 10_000.0 + (hash(f"{dist}_{crop}_{year}") % 80_000)
-                        yield_rate = 1800.0 + (hash(f"{crop}_{state}") % 2500)
+                        area = 10_000.0 + (_stable_hash(f"{dist}_{crop}_{year}") % 80_000)
+                        yield_rate = 1800.0 + (_stable_hash(f"{crop}_{state}") % 2500)
                         production = (area * yield_rate) / 1000.0
                         rows.append(
                             {
@@ -91,7 +101,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
                 market = f"{dist} APMC Mandi"
                 for comm in commodities:
                     for dt in dates:
-                        base = 1200 + (hash(f"{dist}_{comm}") % 3500)
+                        base = 1200 + (_stable_hash(f"{dist}_{comm}") % 3500)
                         rows.append(
                             {
                                 "state_name": state,
@@ -99,7 +109,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
                                 "market_name": market,
                                 "commodity": comm,
                                 "arrival_date": dt,
-                                "arrival_quantity_tonnes": round(50.0 + (hash(dt) % 400), 2),
+                                "arrival_quantity_tonnes": round(50.0 + (_stable_hash(dt) % 400), 2),
                                 "min_price_inr": float(base - 200),
                                 "max_price_inr": float(base + 450),
                                 "modal_price_inr": float(base),
@@ -112,8 +122,8 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
             for dist in districts:
                 for fy in FINANCIAL_YEARS:
                     for ft in fert_types:
-                        req = 20_000.0 + (hash(f"{dist}_{ft}_{fy}") % 50_000)
-                        avail = req * (0.95 + (hash(ft) % 10) / 100.0)
+                        req = 20_000.0 + (_stable_hash(f"{dist}_{ft}_{fy}") % 50_000)
+                        avail = req * (0.95 + (_stable_hash(ft) % 10) / 100.0)
                         sales = avail * 0.94
                         rows.append(
                             {
@@ -132,7 +142,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
         for state, districts in INDIAN_GEOGRAPHY.items():
             for dist in districts:
                 for cy in [2022, 2023, 2024]:
-                    samples = 15_000 + (hash(f"{dist}_{cy}") % 35_000)
+                    samples = 15_000 + (_stable_hash(f"{dist}_{cy}") % 35_000)
                     cards = int(samples * 0.96)
                     rows.append(
                         {
@@ -141,9 +151,9 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
                             "cycle_year": cy,
                             "samples_tested": samples,
                             "cards_issued": cards,
-                            "nitrogen_status": classes[hash(f"{dist}_n") % 3],
-                            "phosphorus_status": classes[hash(f"{dist}_p") % 3],
-                            "organic_carbon_pct": round(0.35 + (hash(dist) % 50) / 100.0, 2),
+                            "nitrogen_status": classes[_stable_hash(f"{dist}_n") % 3],
+                            "phosphorus_status": classes[_stable_hash(f"{dist}_p") % 3],
+                            "organic_carbon_pct": round(0.35 + (_stable_hash(dist) % 50) / 100.0, 2),
                         }
                     )
 
@@ -151,8 +161,8 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
         for state, districts in INDIAN_GEOGRAPHY.items():
             for dist in districts:
                 for cy in CALENDAR_YEARS:
-                    students = 250_000 + (hash(f"{dist}_{cy}") % 600_000)
-                    f_lit = 55.0 + (hash(f"{state}_{dist}") % 38)
+                    students = 250_000 + (_stable_hash(f"{dist}_{cy}") % 600_000)
+                    f_lit = 55.0 + (_stable_hash(f"{state}_{dist}") % 38)
                     m_lit = f_lit + 8.5
                     rows.append(
                         {
@@ -162,7 +172,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
                             "student_count": int(students),
                             "female_literacy_rate": round(min(f_lit, 96.0), 2),
                             "male_literacy_rate": round(min(m_lit, 98.5), 2),
-                            "pupil_teacher_ratio": round(22.0 + (hash(dist) % 15), 1),
+                            "pupil_teacher_ratio": round(22.0 + (_stable_hash(dist) % 15), 1),
                         }
                     )
 
@@ -170,7 +180,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
         for state, districts in INDIAN_GEOGRAPHY.items():
             for dist in districts:
                 for ay in ["2022-23", "2023-24"]:
-                    tot = 1200 + (hash(f"{dist}_{ay}") % 1800)
+                    tot = 1200 + (_stable_hash(f"{dist}_{ay}") % 1800)
                     rows.append(
                         {
                             "state_name": state,
@@ -187,16 +197,16 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
     elif table_name == "ndap_higher_education_aishe":
         for state in INDIAN_GEOGRAPHY.keys():
             for sy in ["2021-22", "2022-23"]:
-                univ = 25 + (hash(state) % 60)
-                colleges = univ * (20 + (hash(state) % 30))
+                univ = 25 + (_stable_hash(state) % 60)
+                colleges = univ * (20 + (_stable_hash(state) % 30))
                 rows.append(
                     {
                         "state_name": state,
                         "survey_year": sy,
                         "university_count": univ,
                         "college_count": colleges,
-                        "gross_enrollment_ratio_male": round(26.5 + (hash(state) % 10), 1),
-                        "gross_enrollment_ratio_female": round(27.2 + (hash(state) % 12), 1),
+                        "gross_enrollment_ratio_male": round(26.5 + (_stable_hash(state) % 10), 1),
+                        "gross_enrollment_ratio_female": round(27.2 + (_stable_hash(state) % 12), 1),
                         "total_faculty_count": colleges * 28,
                     }
                 )
@@ -205,7 +215,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
         for state, districts in INDIAN_GEOGRAPHY.items():
             for dist in districts:
                 for fy in FINANCIAL_YEARS[-2:]:
-                    inst = 800 + (hash(dist) % 1200)
+                    inst = 800 + (_stable_hash(dist) % 1200)
                     prim = inst * 110
                     up_prim = inst * 75
                     rows.append(
@@ -226,7 +236,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
             for dist in districts[:3]:
                 for fy in ["2023-24", "2024-25"]:
                     for sec in sectors:
-                        enr = 1200 + (hash(f"{dist}_{sec}") % 2500)
+                        enr = 1200 + (_stable_hash(f"{dist}_{sec}") % 2500)
                         cert = int(enr * 0.88)
                         placed = int(cert * 0.65)
                         rows.append(
@@ -244,11 +254,11 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
     elif table_name == "ndap_nfhs5_health_indicators":
         for state, districts in INDIAN_GEOGRAPHY.items():
             for dist in districts:
-                inst_birth = 82.0 + (hash(dist) % 16)
-                vacc = 74.0 + (hash(f"{dist}_v") % 22)
-                stunted = 28.0 + (hash(f"{dist}_s") % 18)
-                anaemic = 48.0 + (hash(f"{dist}_a") % 24)
-                sanitation = 65.0 + (hash(f"{dist}_san") % 30)
+                inst_birth = 82.0 + (_stable_hash(dist) % 16)
+                vacc = 74.0 + (_stable_hash(f"{dist}_v") % 22)
+                stunted = 28.0 + (_stable_hash(f"{dist}_s") % 18)
+                anaemic = 48.0 + (_stable_hash(f"{dist}_a") % 24)
+                sanitation = 65.0 + (_stable_hash(f"{dist}_san") % 30)
                 rows.append(
                     {
                         "state_name": state,
@@ -264,7 +274,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
     elif table_name == "ndap_rural_health_infrastructure":
         for state in INDIAN_GEOGRAPHY.keys():
             for yr in [2022, 2023]:
-                phc = 850 + (hash(state) % 1400)
+                phc = 850 + (_stable_hash(state) % 1400)
                 chc = int(phc / 4)
                 sub = phc * 6
                 rows.append(
@@ -282,8 +292,8 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
     elif table_name == "ndap_maternal_child_mortality":
         for state in INDIAN_GEOGRAPHY.keys():
             for sy in ["2020-22", "2021-23"]:
-                mmr = 65 + (hash(state) % 110)
-                imr = 18 + (hash(state) % 25)
+                mmr = 65 + (_stable_hash(state) % 110)
+                imr = 18 + (_stable_hash(state) % 25)
                 rows.append(
                     {
                         "state_name": state,
@@ -291,7 +301,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
                         "maternal_mortality_ratio_mmr": mmr,
                         "infant_mortality_rate_imr": imr,
                         "under_five_mortality_rate_u5mr": imr + 6,
-                        "birth_rate": round(15.2 + (hash(state) % 8), 1),
+                        "birth_rate": round(15.2 + (_stable_hash(state) % 8), 1),
                     }
                 )
 
@@ -299,7 +309,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
         for state, districts in INDIAN_GEOGRAPHY.items():
             for dist in districts:
                 for fy in FINANCIAL_YEARS[-2:]:
-                    cards = 350_000 + (hash(f"{dist}_{fy}") % 800_000)
+                    cards = 350_000 + (_stable_hash(f"{dist}_{fy}") % 800_000)
                     adm = int(cards * 0.04)
                     claim = adm * 16_500.0
                     rows.append(
@@ -308,7 +318,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
                             "district_name": dist,
                             "financial_year": fy,
                             "cards_issued": int(cards),
-                            "empanelled_hospitals": 32 + (hash(dist) % 85),
+                            "empanelled_hospitals": 32 + (_stable_hash(dist) % 85),
                             "authorized_admissions": adm,
                             "claim_amount_settled_inr": claim,
                         }
@@ -318,15 +328,15 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
         for state, districts in INDIAN_GEOGRAPHY.items():
             for dist in districts:
                 for yr in [2022, 2023, 2024]:
-                    notified = 2400 + (hash(f"{dist}_{yr}") % 5500)
+                    notified = 2400 + (_stable_hash(f"{dist}_{yr}") % 5500)
                     rows.append(
                         {
                             "state_name": state,
                             "district_name": dist,
                             "reporting_year": yr,
                             "total_notified_patients": notified,
-                            "treatment_success_rate_pct": round(84.0 + (hash(dist) % 11), 1),
-                            "hiv_screened_pct": round(94.5 + (hash(yr) % 5), 1),
+                            "treatment_success_rate_pct": round(84.0 + (_stable_hash(dist) % 11), 1),
+                            "hiv_screened_pct": round(94.5 + (_stable_hash(yr) % 5), 1),
                             "dbt_nutritional_amount_inr": float(notified * 3000),
                         }
                     )
@@ -334,8 +344,8 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
     elif table_name == "mgnrega_state_annual_employment":
         for state in INDIAN_GEOGRAPHY.keys():
             for fy in FINANCIAL_YEARS:
-                households = 2_500_000 + (hash(f"{state}_{fy}") % 4_000_000)
-                mandays = households * (42 + (hash(state) % 18))
+                households = 2_500_000 + (_stable_hash(f"{state}_{fy}") % 4_000_000)
+                mandays = households * (42 + (_stable_hash(state) % 18))
                 wages = mandays * 245.0  # ~ ₹245 daily wage rate
                 rows.append(
                     {
@@ -343,7 +353,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
                         "financial_year": fy,
                         "households_worked": int(households),
                         "total_mandays_generated": int(mandays),
-                        "women_mandays_pct": round(52.5 + (hash(state) % 12), 1),
+                        "women_mandays_pct": round(52.5 + (_stable_hash(state) % 12), 1),
                         "total_wage_expenditure_inr": wages,
                     }
                 )
@@ -352,8 +362,8 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
         for state, districts in INDIAN_GEOGRAPHY.items():
             for dist in districts:
                 for fy in FINANCIAL_YEARS[-3:]:
-                    sanctioned = 120.0 + (hash(f"{dist}_{fy}") % 250)
-                    completed = sanctioned * (0.85 + (hash(dist) % 14) / 100.0)
+                    sanctioned = 120.0 + (_stable_hash(f"{dist}_{fy}") % 250)
+                    completed = sanctioned * (0.85 + (_stable_hash(dist) % 14) / 100.0)
                     rows.append(
                         {
                             "state_name": state,
@@ -369,8 +379,8 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
     elif table_name == "ndap_jal_jeevan_tap_water":
         for state, districts in INDIAN_GEOGRAPHY.items():
             for dist in districts:
-                tot_hh = 180_000 + (hash(dist) % 450_000)
-                cov_pct = 68.0 + (hash(f"{state}_{dist}") % 31)
+                tot_hh = 180_000 + (_stable_hash(dist) % 450_000)
+                cov_pct = 68.0 + (_stable_hash(f"{state}_{dist}") % 31)
                 tap_hh = int(tot_hh * (cov_pct / 100.0))
                 rows.append(
                     {
@@ -379,7 +389,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
                         "total_rural_households": tot_hh,
                         "households_with_tap_connection": tap_hh,
                         "tap_connection_coverage_pct": round(cov_pct, 1),
-                        "villages_certified_har_ghar_jal": int(12 + (hash(dist) % 85)),
+                        "villages_certified_har_ghar_jal": int(12 + (_stable_hash(dist) % 85)),
                     }
                 )
 
@@ -387,7 +397,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
         for state, districts in INDIAN_GEOGRAPHY.items():
             for dist in districts:
                 for fy in FINANCIAL_YEARS[-3:]:
-                    sanc = 14_000 + (hash(f"{dist}_{fy}") % 28_000)
+                    sanc = 14_000 + (_stable_hash(f"{dist}_{fy}") % 28_000)
                     comp = int(sanc * 0.89)
                     rows.append(
                         {
@@ -406,7 +416,7 @@ def _generate_table_rows(table_name: str) -> List[Dict[str, Any]]:
         for state, districts in INDIAN_GEOGRAPHY.items():
             for dist in districts:
                 for fy in FINANCIAL_YEARS[-2:]:
-                    gps = 280 + (hash(dist) % 650)
+                    gps = 280 + (_stable_hash(dist) % 650)
                     grant = gps * 2_200_000.0
                     util = grant * 0.91
                     rows.append(
@@ -466,14 +476,15 @@ def ingest_and_export_all_ndap_databases(
     tables = NDAPCatalog.list_tables()
     summary: Dict[str, int] = {}
     master_metadata: Dict[str, Any] = {
-        "benchmark": "IndicDB (April 2026)",
-        "source": "National Data & Analytics Platform (NDAP) - NITI Aayog / GoI",
+        "benchmark": "IndicSQL local development fixture (not official IndicDB evaluation)",
+        "source": "SYNTHETIC_GENERATED_FIXTURE",
+        "data_provenance": "Synthetic rows generated by deterministic SHA-256-derived fixture rules; not government observations",
         "total_databases": len(tables),
         "domains": NDAPCatalog.list_domains(),
         "tables": {},
     }
 
-    print(f"🚀 Starting Ingestion for all {len(tables)} NDAP Databases...")
+    print(f"🚀 Generating synthetic fixtures for {len(tables)} local NDAP-style tables...")
 
     for tbl in tables:
         schema = NDAPCatalog.get_table_schema(tbl)
@@ -508,7 +519,7 @@ def ingest_and_export_all_ndap_databases(
         json.dump(master_metadata, f, indent=2)
 
     print(
-        f"\n✨ Ingestion Complete: {sum(summary.values()):,} total records across 20 NDAP databases."
+        f"\n✨ Synthetic fixture generation complete: {sum(summary.values()):,} records (not official NDAP observations)."
     )
     print(f"📁 Parquet Stores: {parquet_dir}")
     print(f"📁 Catalog DDLs: {catalog_dir}")

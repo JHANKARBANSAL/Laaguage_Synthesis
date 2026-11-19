@@ -26,6 +26,7 @@ from psycopg2 import sql
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.preflight_indicdb_benchmark import _archive_schema_tables, _parse_sql
+from indicsql.sandbox.validator import validate_postgres_readonly_sql
 from scripts.verify_indicdb_sources import MANIFEST_PATH, verify_indicdb_sources
 
 
@@ -98,6 +99,26 @@ def _table_row_counts(connection: Any, catalog: dict[str, set[str]]) -> dict[str
     return counts
 
 
+def audit_completion_status(
+    *,
+    nonempty_rows: int,
+    attempted_rows: int,
+    execution_errors: int,
+    unmapped_rows: int,
+) -> dict[str, bool]:
+    """Distinguish success on mapped cases from true full benchmark coverage."""
+    if min(nonempty_rows, attempted_rows, execution_errors, unmapped_rows) < 0:
+        raise ValueError("Audit counters cannot be negative")
+    if attempted_rows + unmapped_rows != nonempty_rows:
+        raise ValueError("Gold row-accounting mismatch; the audit did not classify every row")
+    mapped_verified = attempted_rows > 0 and execution_errors == 0
+    return {
+        "mapped_gold_sql_execution_verified": mapped_verified,
+        "gold_sql_execution_verified": mapped_verified and unmapped_rows == 0,
+        "all_nonempty_gold_covered": unmapped_rows == 0,
+    }
+
+
 def execute_gold_sql(
     *,
     parquet_root: Path,
@@ -121,6 +142,7 @@ def execute_gold_sql(
     mappings = build_schema_mapping(archive_path)
     connection = psycopg2.connect(dsn)
     try:
+        connection.set_session(readonly=True, autocommit=False)
         catalog = _catalog_tables(connection)
         mapped_catalog_checks: dict[str, dict[str, Any]] = {}
         for benchmark_name, mapping in mappings.items():
@@ -147,10 +169,24 @@ def execute_gold_sql(
             )
 
         table_rows = _table_row_counts(connection, catalog)
-        connection.commit()
+        observed_rows = sum(count for tables in table_rows.values() for count in tables.values())
+        expected_catalog = manifest["postgresql_dump"]["verified_archive_schema_configs"]
+        expected_schemas = expected_catalog["schemas"]
+        expected_tables = expected_catalog["tables"]
+        expected_rows = 3_910_112  # Source manifest's independently documented restored snapshot.
+        if (len(catalog), sum(map(len, catalog.values())), observed_rows) != (
+            expected_schemas, expected_tables, expected_rows
+        ):
+            raise ValueError(
+                "Restored PostgreSQL dataset differs from the pinned documented snapshot: "
+                f"expected {(expected_schemas, expected_tables, expected_rows)}, "
+                f"observed {(len(catalog), sum(map(len, catalog.values())), observed_rows)}"
+            )
+        connection.rollback()
         records: list[dict[str, Any]] = []
         schema_metrics: dict[str, Counter[str]] = defaultdict(Counter)
         unmapped_rows: Counter[str] = Counter()
+        nonempty_gold_rows = 0
         for language, file_spec in manifest["benchmark"]["files"].items():
             frame = pd.read_parquet(
                 _parquet_path(parquet_root, file_spec["path"]),
@@ -160,9 +196,7 @@ def execute_gold_sql(
                 query_text, pair_id, benchmark_schema = map(lambda value: str(value).strip(), row)
                 if not query_text:
                     continue
-                _tree, parse_error = _parse_sql(query_text)
-                if parse_error:
-                    raise ValueError(f"Pinned gold SQL unexpectedly failed parsing: {parse_error}")
+                nonempty_gold_rows += 1
                 mapping = mappings.get(benchmark_schema)
                 if mapping is None:
                     unmapped_rows[benchmark_schema] += 1
@@ -171,16 +205,21 @@ def execute_gold_sql(
                 started = perf_counter()
                 error = None
                 row_count = None
+                valid_sql, normalized_or_reason = validate_postgres_readonly_sql(query_text)
+                _tree, parse_error = _parse_sql(query_text) if valid_sql else (None, None)
                 try:
+                    if not valid_sql:
+                        raise ValueError(f"Gold SQL read-only validation failed: {normalized_or_reason}")
+                    if parse_error:
+                        raise ValueError(f"Gold SQL parse failed: {parse_error}")
                     with connection.cursor() as cursor:
-                        cursor.execute("SET TRANSACTION READ ONLY")
                         cursor.execute("SET LOCAL statement_timeout = %s", (statement_timeout_ms,))
                         cursor.execute(
                             sql.SQL("SET LOCAL search_path TO {}").format(
                                 sql.Identifier(postgres_schema)
                             )
                         )
-                        cursor.execute(query_text)
+                        cursor.execute(normalized_or_reason)
                         row_count = len(cursor.fetchall())
                     connection.rollback()
                 except Exception as exc:  # Individual benchmark errors are audit results.
@@ -210,11 +249,20 @@ def execute_gold_sql(
                     metric["result_rows"] += row_count or 0
 
         errors = [record for record in records if record["error"]]
+        completion = audit_completion_status(
+            nonempty_rows=nonempty_gold_rows,
+            attempted_rows=len(records),
+            execution_errors=len(errors),
+            unmapped_rows=sum(unmapped_rows.values()),
+        )
         empty_results = [record for record in records if record["empty_result"]]
         return {
             "artifact_type": "IndicDB pinned gold SQL execution audit",
             "official_benchmark_result": False,
-            "gold_sql_execution_verified": not errors,
+            **completion,
+            "all_nonempty_gold_rows": nonempty_gold_rows,
+            "unmapped_gold_rows": sum(unmapped_rows.values()),
+            "gold_sql_scope": "Full pinned Parquet SQL rows with a verified archive mapping; unmapped schemas are excluded",
             "semantic_correctness_verified": False,
             "statement_timeout_ms": statement_timeout_ms,
             "source_artifacts_verified": source_audit["source_artifacts_verified"],
@@ -251,16 +299,23 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--parquet-dir", required=True, type=Path)
     parser.add_argument("--archive", required=True, type=Path)
-    parser.add_argument("--dsn", required=True)
+    parser.add_argument("--dsn", help="PostgreSQL DSN; prefer --dsn-env to avoid command-line credential exposure")
+    parser.add_argument("--dsn-env", default="INDICDB_DSN", help="Environment variable containing the private PostgreSQL DSN")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--statement-timeout-ms", type=int, default=5000)
     args = parser.parse_args()
     if args.statement_timeout_ms < 1:
         parser.error("--statement-timeout-ms must be positive.")
+    import os
+    if args.dsn and os.environ.get(args.dsn_env):
+        parser.error("Use either --dsn or --dsn-env, not both")
+    dsn = args.dsn or os.environ.get(args.dsn_env)
+    if not dsn:
+        parser.error(f"Set {args.dsn_env} (preferred) or specify --dsn")
     report = execute_gold_sql(
         parquet_root=args.parquet_dir,
         archive_path=args.archive,
-        dsn=args.dsn,
+        dsn=dsn,
         statement_timeout_ms=args.statement_timeout_ms,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -277,7 +332,7 @@ def main() -> int:
             indent=2,
         )
     )
-    return 0
+    return 0 if report["gold_sql_execution_verified"] else 2
 
 
 if __name__ == "__main__":

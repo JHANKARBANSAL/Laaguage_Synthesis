@@ -97,10 +97,19 @@ def execute_indicsql_pipeline(
     database_schema_source: Optional[str] = None,
     language_override: Optional[str] = None,
     sandbox: Optional[Any] = None,
+    max_reflections: int = 3,
+    ablation_full_catalog: bool = False,
+    ablation_no_critic: bool = False,
 ) -> IndicSQLState:
     """
     Executes the multi-agent swarm for a given query, supporting both LangGraph and native execution.
     """
+    if not isinstance(max_reflections, int) or not (0 <= max_reflections <= 3):
+        raise ValueError('max_reflections must be an integer from 0 to 3')
+    if ablation_full_catalog and (database_schema is None or not database_schema_name):
+        raise ValueError("Full-catalog ablation requires an explicit PostgreSQL database schema")
+    if ablation_no_critic and database_schema is None:
+        raise ValueError("No-critic ablation requires an explicit database schema")
     if not query_id:
         query_id = f"ind-q-{uuid.uuid4().hex[:8]}"
 
@@ -110,6 +119,8 @@ def execute_indicsql_pipeline(
         "reflection_attempts": 0,
         "audit_trace": [],
         "interactive_defaults": interactive_defaults,
+        "ablation_full_catalog": ablation_full_catalog,
+        "ablation_no_critic": ablation_no_critic,
     }
     if database_schema is not None:
         state["database_schema"] = database_schema
@@ -156,18 +167,39 @@ def execute_indicsql_pipeline(
             state.update(response_verbalizer_node(state))
             return state
 
-        # Critic security check
-        state.update(critic_node(state))
-        if not state.get("syntax_valid", True):
-            break
+        # In A2, bypass the architectural Critic only. The independent
+        # read-only AST validator inside sandbox_executor_node remains active.
+        if ablation_no_critic:
+            state["syntax_valid"] = True
+            state["audit_trace"] = list(state.get("audit_trace", [])) + [{
+                "step": 3.5,
+                "agent": "AblationControl",
+                "action": "critic_bypassed_executor_guard_retained",
+            }]
+        else:
+            state.update(critic_node(state))
+            if not state.get("syntax_valid", True):
+                break
 
         # Sandbox execution
         state.update(sandbox_executor_node(state, sandbox=sandbox))
+        # This trace records execution-level recovery, not gold-answer
+        # correctness; semantic repair success requires external scoring.
+        state["ablation_attempt_history"] = list(
+            state.get("ablation_attempt_history", [])
+        ) + [{
+            "attempt": len(state.get("ablation_attempt_history", [])) + 1,
+            "executed": state.get("execution_result") is not None
+                        and not state.get("execution_error"),
+            "error": state.get("execution_error"),
+        }]
 
         decision = route_after_execution(state)
         if decision == "success" or decision == "fatal_error":
             break
         elif decision == "retry":
+            if state.get("reflection_attempts", 0) >= max_reflections:
+                break
             if state.get("schema_validation_error"):
                 state["schema_validation_retry_used"] = True
             full_schema = state.get("database_schema_full")

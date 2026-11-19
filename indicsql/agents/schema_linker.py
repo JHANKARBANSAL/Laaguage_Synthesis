@@ -377,7 +377,13 @@ def schema_linker_node(state: IndicSQLState) -> Dict[str, Any]:
         pruned = []
         primary_table = ""
     elif provided_schema and provided_schema_name:
-        linked_schema = _relevant_schema(provided_schema, canonical_query)
+        # Ablation: provide the full released schema without relevance pruning.
+        # This does NOT remove the mandatory database catalog or its safe SQL checks.
+        linked_schema = (
+            provided_schema
+            if state.get("ablation_full_catalog", False)
+            else _relevant_schema(provided_schema, canonical_query)
+        )
         pruned = [
             {
                 "table_name": table_name,

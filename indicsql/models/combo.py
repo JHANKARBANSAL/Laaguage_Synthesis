@@ -7,12 +7,13 @@ Evaluates queries across three architectural configurations:
 """
 
 import logging
+import os
 import time
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Literal, Optional
 
 from indicsql.core.state import IndicSQLState
-from indicsql.models.adapter import QwenAdapter, SarvamAdapter
+from indicsql.models.adapter import ModelUnavailableError, QwenAdapter, SarvamAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +42,15 @@ class TriComboEngine:
         self,
         sarvam_adapter: Optional[SarvamAdapter] = None,
         qwen_adapter: Optional[QwenAdapter] = None,
+        require_lora: Optional[bool] = None,
     ):
         self.sarvam_adapter = sarvam_adapter or SarvamAdapter()
         self.qwen_adapter = qwen_adapter or QwenAdapter()
+        # Research runs can prohibit silent substitution of heuristic output for LoRA.
+        self.require_lora = (
+            os.environ.get("INDICSQL_REQUIRE_LORA", "0") == "1"
+            if require_lora is None else require_lora
+        )
 
     def synthesize_sql_lora(self, state: IndicSQLState) -> Optional[str]:
         """
@@ -51,6 +58,8 @@ class TriComboEngine:
         Returns None if adapter weights are not available.
         """
         if not self.qwen_adapter.is_available:
+            if self.require_lora:
+                raise ModelUnavailableError("Qwen LoRA weights absent: strict LoRA comparison aborted")
             return None
 
         try:
@@ -67,6 +76,8 @@ class TriComboEngine:
             sql = self.qwen_adapter.generate(prompt, max_new_tokens=150)
             return sql.strip()
         except Exception as e:
+            if self.require_lora:
+                raise ModelUnavailableError(f"Qwen LoRA inference failed; no fallback permitted: {e}") from e
             logger.warning(f"LoRA SQL generation failed: {e}. Falling back.")
             return None
 
@@ -75,12 +86,15 @@ class TriComboEngine:
         start = time.perf_counter()
 
         # Step 1: Transliteration
+        if self.require_lora and not self.sarvam_adapter.is_available:
+            raise ModelUnavailableError("Sarvam LoRA weights absent: strict hybrid comparison aborted")
         if self.sarvam_adapter.is_available:
             try:
                 norm_prompt = f"Instruction: Normalize query\nInput: {state.get('raw_query', '')}\nOutput:"
                 _ = self.sarvam_adapter.generate(norm_prompt, max_new_tokens=64)
-            except Exception:
-                pass
+            except Exception as exc:
+                if self.require_lora:
+                    raise ModelUnavailableError(f"Sarvam LoRA inference failed: {exc}") from exc
 
         # Step 2: SQL Synthesis
         lora_sql = self.synthesize_sql_lora(state)
@@ -111,11 +125,14 @@ class TriComboEngine:
         """Combo B: Sarvam-only (Sarvam Transliteration + ToT Heuristic SQL)."""
         start = time.perf_counter()
 
+        if self.require_lora and not self.sarvam_adapter.is_available:
+            raise ModelUnavailableError("Sarvam LoRA weights absent: strict Sarvam comparison aborted")
         if self.sarvam_adapter.is_available:
             try:
                 _ = self.sarvam_adapter.generate(f"Query: {state.get('raw_query', '')}")
-            except Exception:
-                pass
+            except Exception as exc:
+                if self.require_lora:
+                    raise ModelUnavailableError(f"Sarvam LoRA inference failed: {exc}") from exc
 
         from indicsql.agents.sql_synthesizer import _tot_select
 

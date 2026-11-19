@@ -1,0 +1,101 @@
+name: Paired local 280 IndicSQL versus Qwen regression
+
+on:
+  push:
+    branches:
+      - research/evaluation-integrity-audit
+    paths:
+      - .github/workflows/paired-local-280.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paired-inference:
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - {start: 1, end: 40}
+          - {start: 41, end: 80}
+          - {start: 81, end: 120}
+          - {start: 121, end: 160}
+          - {start: 161, end: 200}
+          - {start: 201, end: 240}
+          - {start: 241, end: 280}
+    runs-on: ubuntu-latest
+    timeout-minutes: 320
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install actual DuckDB and IndicSQL dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Start isolated Ollama CPU runtime and download exact Qwen model
+        run: |
+          docker run --detach --network host --name local-ollama ollama/ollama:0.12.6
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then break; fi
+            sleep 2
+          done
+          docker exec local-ollama ollama pull qwen2.5:3b
+          curl --fail --silent http://127.0.0.1:11434/api/tags
+      - name: Execute real paired model queries on frozen local 280 regression cohort
+        run: |
+          mkdir -p benchmark_results/local_280
+          python scripts/evaluate_local_280_paired.py \
+            --ollama-url http://127.0.0.1:11434 \
+            --model qwen2.5:3b \
+            --start ${{ matrix.start }} \
+            --end ${{ matrix.end }} \
+            --timeout 240 \
+            --output benchmark_results/local_280/paired-shard-${{ matrix.start }}.json
+      - name: Upload measured paired records; never publish cached checkpoint as a final report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paired-local-280-part-${{ matrix.start }}
+          path: benchmark_results/local_280/paired-shard-${{ matrix.start }}.json
+          if-no-files-found: ignore
+      - name: Upload incomplete checkpoint for diagnostics only
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paired-local-280-incomplete-${{ matrix.start }}
+          path: benchmark_results/local_280/*.checkpoint.json
+          if-no-files-found: ignore
+
+  merged-280-results:
+    needs: paired-inference
+    if: ${{ needs.paired-inference.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: paired-local-280-part-*
+          path: benchmark_results/shards
+          merge-multiple: true
+      - name: Verify identical cohort, model digest, fixture and all 280 predictions
+        run: |
+          python scripts/merge_local_280_paired.py \
+            --shards-dir benchmark_results/shards \
+            --output benchmark_results/local_280/verified_paired_280.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-local-280-paired-regression-NOT-OFFICIAL
+          path: benchmark_results/local_280/verified_paired_280.json
+          if-no-files-found: error
