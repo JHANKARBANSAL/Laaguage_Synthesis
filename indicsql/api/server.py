@@ -4,7 +4,6 @@ Exposes endpoints for natural language queries, schema inspection, and benchmark
 """
 
 import os
-import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -103,7 +102,6 @@ def run_query(request: QueryRequest):
     session_id = request.session_id.strip() if request.session_id else None
     result_state = execute_indicsql_pipeline(
         request.query,
-        query_id=f"ind-q-{uuid.uuid4().hex[:12]}",
         interactive_defaults=True,
     )
 
