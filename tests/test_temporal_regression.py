@@ -23,6 +23,7 @@ from indicsql.models.temporal_guard import (
     sanitize_temporal_predicates,
 )
 from indicsql.sandbox.duckdb_engine import DuckDBSandbox
+from indicsql.schema.ingest_ndap import _generate_table_rows
 
 
 class TestTemporalRegressionComprehensive(unittest.TestCase):
@@ -34,6 +35,15 @@ class TestTemporalRegressionComprehensive(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.sandbox = DuckDBSandbox()
+
+    @staticmethod
+    def _fixture_sum(table_name: str, column: str, **filters: object) -> int | float:
+        """Calculate a reference from local synthetic fixture rows, not gold IndicDB."""
+        return sum(
+            row[column]
+            for row in _generate_table_rows(table_name)
+            if all(row.get(k) == v for k, v in filters.items())
+        )
 
     # -------------------------------------------------------------------------
     # Test 1: No temporal intent with hallucinated reporting_year
@@ -51,7 +61,7 @@ class TestTemporalRegressionComprehensive(unittest.TestCase):
         p_res = self.sandbox.execute_query(cleaned)
         g_res = self.sandbox.execute_query(gold_sql)
         self.assertTrue(are_tabular_results_equivalent(p_res, g_res))
-        self.assertEqual(p_res["rows"][0][0], 3298)
+        self.assertEqual(p_res["rows"][0][0], self._fixture_sum("ndap_rural_health_infrastructure", "primary_health_centres_phc", state_name="HARYANA"))
 
     # -------------------------------------------------------------------------
     # Test 2: No temporal intent with hallucinated survey_year
@@ -68,7 +78,7 @@ class TestTemporalRegressionComprehensive(unittest.TestCase):
         p_res = self.sandbox.execute_query(cleaned)
         g_res = self.sandbox.execute_query(gold_sql)
         self.assertTrue(are_tabular_results_equivalent(p_res, g_res))
-        self.assertEqual(p_res["rows"][0][0], 148486)
+        self.assertEqual(p_res["rows"][0][0], self._fixture_sum("ndap_higher_education_aishe", "total_faculty_count", state_name="TAMIL NADU"))
 
     # -------------------------------------------------------------------------
     # Test 3: No temporal intent with multiple temporal predicates
@@ -83,7 +93,7 @@ class TestTemporalRegressionComprehensive(unittest.TestCase):
         self.assertIn("state_name = 'UTTAR PRADESH'", cleaned)
 
         p_res = self.sandbox.execute_query(cleaned)
-        self.assertEqual(p_res["rows"][0][0], 14623899)
+        self.assertEqual(p_res["rows"][0][0], self._fixture_sum("ndap_pm_kisan_disbursement", "farmer_beneficiaries", state_name="UTTAR PRADESH"))
 
     # -------------------------------------------------------------------------
     # Test 4: Explicit 2022 with correct reporting_year
@@ -96,7 +106,7 @@ class TestTemporalRegressionComprehensive(unittest.TestCase):
         self.assertIn("reporting_year = 2022", cleaned)
         self.assertIn("state_name = 'HARYANA'", cleaned)
         p_res = self.sandbox.execute_query(cleaned)
-        self.assertEqual(p_res["rows"][0][0], 1462)
+        self.assertEqual(p_res["rows"][0][0], self._fixture_sum("ndap_rural_health_infrastructure", "primary_health_centres_phc", state_name="HARYANA", reporting_year=2022))
 
     # -------------------------------------------------------------------------
     # Test 5: Explicit 2022 with incorrect 2021
@@ -295,7 +305,7 @@ class TestTemporalRegressionComprehensive(unittest.TestCase):
         self.assertIn("district_name = 'Pune'", cleaned)
 
         p_res = self.sandbox.execute_query(cleaned)
-        self.assertEqual(p_res["rows"][0][0], 4063)
+        self.assertEqual(p_res["rows"][0][0], self._fixture_sum("ndap_school_infrastructure", "schools_with_electricity", state_name="MAHARASHTRA", district_name="Pune"))
 
     # -------------------------------------------------------------------------
     # Test 22: SQL without WHERE clause
