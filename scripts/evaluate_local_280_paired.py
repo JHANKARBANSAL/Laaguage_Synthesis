@@ -128,6 +128,7 @@ def evaluate_item(query, sandbox, url, model, timeout):
     raw = ""
     output = None
     error = None
+    inference_completed = False
     try:
         response = httpx.post(
             url.rstrip("/") + "/api/generate",
@@ -139,6 +140,7 @@ def evaluate_item(query, sandbox, url, model, timeout):
         data = response.json()
         if data.get("done") is not True:
             raise RuntimeError("Qwen did not finish generation")
+        inference_completed = True
         raw = str(data.get("response") or "").strip()
         fenced = re.fullmatch(r"```(?:sql)?\s*(.*?)\s*```", raw, re.I | re.S)
         if fenced:
@@ -149,7 +151,8 @@ def evaluate_item(query, sandbox, url, model, timeout):
     except Exception as exc:
         error = str(exc)
     item["qwen_direct"] = {
-        "sql": raw, "error": error, "execution_success": output is not None,
+        "sql": raw, "error": error, "inference_completed": inference_completed,
+        "execution_success": output is not None,
         "execution_match": None if gold is None else
             bool(output is not None and are_tabular_results_equivalent(output, gold)),
         "row_count": None if output is None else output["row_count"],
@@ -247,6 +250,8 @@ def main():
         sandbox.close()
     if len(records) != len(cohort):
         raise RuntimeError("Incomplete paired inference")
+    if not all(r["qwen_direct"].get("inference_completed") for r in records):
+        raise RuntimeError("One or more direct Qwen generations did not complete; partial checkpoint retained")
     result = {"metadata": meta, "records": records}
     if args.start == 1 and args.end == 280:
         result["metrics"] = summarize(records)
