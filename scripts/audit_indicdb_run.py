@@ -59,8 +59,10 @@ def audit_result(payload: dict[str, Any], expected_queries: int | None = None) -
     if payload.get("selected_question_count") != len(records):
         raise ValueError("Selected question count differs from recorded rows")
 
+    if any(not isinstance(r, dict) for r in records):
+        raise ValueError("Malformed per-query record")
     ids = [r.get("record_id") for r in records]
-    if any(not isinstance(r, dict) for r in records) or any(not x for x in ids) or len(set(ids)) != len(ids):
+    if any(not x for x in ids) or len(set(ids)) != len(ids):
         raise ValueError("Missing or duplicate opaque per-question record IDs")
 
     languages: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -71,6 +73,8 @@ def audit_result(payload: dict[str, Any], expected_queries: int | None = None) -
 
     def metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         n = len(rows)
+        routing_observed = sum(isinstance(r.get("schema_route_correct"), bool) for r in rows)
+        execution_observed = sum(isinstance(r.get("prediction_execution_success"), bool) for r in rows)
         schema_valid = sum(r.get("schema_route_valid") is True for r in rows)
         schema_correct = sum(r.get("schema_route_correct") is True for r in rows)
         execution_ok = sum(r.get("prediction_execution_success") is True for r in rows)
@@ -84,10 +88,11 @@ def audit_result(payload: dict[str, Any], expected_queries: int | None = None) -
         )
         return {
             "n": n, "valid_schema_names": schema_valid, "correct_schema_routes": schema_correct,
+            "routing_status_available": routing_observed, "execution_status_available": execution_observed,
             "prediction_execution_success": execution_ok, "execution_matches": matches,
             "comparable": comparable, "empty_result_matches": empty_matches,
-            "schema_routing_accuracy_pct": round(100 * schema_correct / n, 3) if n else None,
-            "execution_success_pct": round(100 * execution_ok / n, 3) if n else None,
+            "schema_routing_accuracy_pct": round(100 * schema_correct / n, 3) if n and routing_observed == n else None,
+            "execution_success_pct": round(100 * execution_ok / n, 3) if n and execution_observed == n else None,
             "execution_match_pct_all": round(100 * matches / n, 3) if n else None,
             "execution_match_pct_comparable": round(100 * matches / comparable, 3) if comparable else None,
             "wilson_95pct_for_all_ex": wilson_interval(matches, n),
