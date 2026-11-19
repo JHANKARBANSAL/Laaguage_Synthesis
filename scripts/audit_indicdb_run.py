@@ -7,6 +7,7 @@ for executing gold SQL or obtaining native-speaker annotations.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from collections import Counter, defaultdict
@@ -115,14 +116,33 @@ def audit_result(payload: dict[str, Any], expected_queries: int | None = None) -
     }
 
 
+def verify_receipt(result_path: Path, receipt_path: Path, payload: dict[str, Any]) -> None:
+    """Fail if the exact saved result bytes or experiment lock differ from receipt."""
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if receipt.get("artifact_type") != "IndicDB sealed final-run receipt":
+        raise ValueError("Unexpected result receipt type")
+    digest = hashlib.sha256(result_path.read_bytes()).hexdigest()
+    if receipt.get("result_sha256") != digest:
+        raise ValueError("Result SHA-256 mismatch: file differs from immutable run receipt")
+    if receipt.get("lock_sha256") != payload.get("lock_sha256"):
+        raise ValueError("Result receipt experiment lock mismatch")
+    if receipt.get("selected_question_count") != payload.get("selected_question_count"):
+        raise ValueError("Receipt count differs from result")
+    if receipt.get("contains_questions_or_gold_sql") is not False:
+        raise ValueError("Receipt contains unverified sealed-content assertion")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("results", type=Path)
     parser.add_argument("--expected-queries", type=int, default=280)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--receipt", type=Path, required=True, help="Immutable run receipt with result SHA-256")
     args = parser.parse_args()
     raw = json.loads(args.results.read_text(encoding="utf-8"))
+    verify_receipt(args.results, args.receipt, raw)
     report = audit_result(raw, args.expected_queries)
+    report["result_sha256_verified"] = True
     rendered = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
