@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 50
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_DB: indicdb
           POSTGRES_USER: postgres
@@ -93,9 +93,10 @@ jobs:
               raise ValueError('Official PostgreSQL dump SHA-256 mismatch')
           print('Official archive and dump hashes verified')
           PY
-      - name: Restore official pinned dump to PostgreSQL 16
+      - name: Restore official pinned dump to PostgreSQL 18
         run: |
           pg_restore --version
+          psql --host=127.0.0.1 --username=postgres --dbname=indicdb --no-psqlrc -Atc 'SHOW server_version;'
           pg_restore --host=127.0.0.1 --port=5432 --username=postgres --dbname=indicdb --no-owner --no-privileges --exit-on-error official_artifacts/indicDB.dump
       - name: Execute every mapped gold SQL query
         run: |
