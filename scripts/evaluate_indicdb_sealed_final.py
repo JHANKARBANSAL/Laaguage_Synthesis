@@ -136,6 +136,16 @@ def route_schema(question: str, model: dict[str, Any], candidates: list[str]) ->
     return chosen if chosen in candidates else None
 
 
+def schema_route_correct(chosen: str | None, benchmark_name: str, mappings: dict[str, dict[str, str]]) -> bool:
+    """Compare the selected archive schema with the mapped reference schema.
+
+    A valid schema name is not automatically a correct schema choice.
+    Evaluation labels are used only after the model makes its prediction.
+    """
+    gold_mapping = mappings.get(benchmark_name)
+    return bool(chosen and gold_mapping and chosen.lower() == gold_mapping['postgres_schema_name'])
+
+
 def opaque_record_id(query: IndicDBQuery) -> str:
     return hashlib.sha256(f'{query.language}\0{query.pair_id}\0{query.dataset_name}'.encode()).hexdigest()[:16]
 
@@ -168,8 +178,10 @@ def main() -> int:
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--checkpoint', type=Path)
     parser.add_argument('--receipt', type=Path, default=REPO_ROOT / 'benchmark_results/sealed_final/indicdb_final_run_receipt.json')
-    parser.add_argument('--statement-timeout-ms', type=int, default=5000)
+    parser.add_argument('--statement-timeout-ms', type=int, default=60000)
     args = parser.parse_args()
+    if args.statement_timeout_ms <= 0:
+        parser.error('--statement-timeout-ms must be positive')
     dsn = os.environ.get('INDICDB_DSN')
     if not dsn:
         parser.error('Set INDICDB_DSN; it is never written to outputs.')
@@ -241,12 +253,19 @@ def main() -> int:
                     gold_error = f'{type(exc).__name__}: {exc}'
             match = None if gold is None or prediction is None else normalized_rows(gold['rows']) == normalized_rows(prediction['rows'])
             metrics[query.language]['queries'] += 1
+            correct_route = schema_route_correct(chosen, query.dataset_name, mappings)
+            prediction_ok = prediction is not None and not prediction_error
             metrics[query.language]['valid_schema_routes'] += chosen is not None
+            metrics[query.language]['correct_schema_routes'] += correct_route
+            metrics[query.language]['prediction_execution_successes'] += prediction_ok
             metrics[query.language]['prediction_errors'] += bool(prediction_error)
             metrics[query.language]['gold_errors'] += bool(gold_error)
             metrics[query.language]['execution_matches'] += match is True
             records.append({'record_id': opaque_record_id(query), 'language': query.language,
-                            'routed_schema': chosen, 'generated_sql': generated_sql,
+                            'routed_schema': chosen, 'schema_route_valid': chosen is not None,
+                            'schema_route_correct': correct_route,
+                            'prediction_execution_success': prediction_ok,
+                            'generated_sql': generated_sql,
                             'prediction_error': prediction_error, 'gold_error': gold_error,
                             'prediction_row_count': None if prediction is None else prediction['row_count'],
                             'gold_row_count': None if gold is None else gold['row_count'],
@@ -257,6 +276,8 @@ def main() -> int:
     result = {'artifact_type': 'IndicDB sealed final evaluation', 'official_postgresql_required': True,
               'semantic_correctness_verified': False, 'native_language_review_verified': False,
               'lock_sha256': lock['lock_sha256'], 'selected_question_count': len(records),
+              'statement_timeout_ms': args.statement_timeout_ms,
+              'metric_note': 'correct_schema_routes compares mapped reference after prediction; valid_schema_routes only checks whether a released schema name was selected',
               'mapped_schema_denominator': len(records),
               'udise_identity_unresolved': 'INDIA_UDISE_SCHOOL_PROFILES' in manifest.get('excluded_unresolved_schema_names', []),
               'udise_excluded_benchmark_schema_names': ['INDIA_UDISE_SCHOOL_PROFILES'],
