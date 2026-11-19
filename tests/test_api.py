@@ -5,6 +5,24 @@ from indicsql.api.server import QueryRequest, run_query
 
 
 class TestQueryApi(unittest.TestCase):
+    @patch("indicsql.api.server.NDAPCatalog")
+    def test_schema_response_includes_table_name_for_frontend(self, catalog):
+        from indicsql.api.server import list_schemas
+
+        catalog.list_tables.return_value = ["sample_table"]
+        catalog.get_table_schema.return_value = {
+            "domain": "Agriculture",
+            "columns": {"state_name": "VARCHAR"},
+        }
+
+        response = list_schemas()
+        self.assertEqual(response["count"], 1)
+        self.assertEqual(response["tables"]["sample_table"]["table_name"], "sample_table")
+        self.assertEqual(
+            response["tables"]["sample_table"]["columns"]["state_name"], "VARCHAR"
+        )
+
+
     @patch("indicsql.api.server.execute_indicsql_pipeline")
     def test_reports_success_for_empty_result_set(self, run_pipeline):
         run_pipeline.return_value = {
