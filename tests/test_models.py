@@ -52,6 +52,16 @@ class TestModelsAndCombos(unittest.TestCase):
         with self.assertRaises(ModelUnavailableError):
             adapter.generate("Hello")
 
+    def test_strict_lora_never_claims_heuristic_as_adapter_output(self):
+        unavailable = ModelAdapter("missing/model", lora_path=Path("/tmp/absent_lora_indicsql_test"))
+        engine = TriComboEngine(sarvam_adapter=unavailable, qwen_adapter=unavailable, require_lora=True)
+        with self.assertRaises(ModelUnavailableError):
+            engine.run_combo_a(self.state)
+        with self.assertRaises(ModelUnavailableError):
+            engine.run_combo_b(self.state)
+        with self.assertRaises(ModelUnavailableError):
+            engine.run_combo_c(self.state)
+
     def test_sarvam_and_qwen_adapters_default_paths(self):
         sarvam = SarvamAdapter()
         qwen = QwenAdapter()
