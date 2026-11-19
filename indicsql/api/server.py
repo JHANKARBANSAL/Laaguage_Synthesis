@@ -83,7 +83,7 @@ def list_schemas():
     tables = NDAPCatalog.list_tables()
     return {
         "count": len(tables),
-        "tables": {t: NDAPCatalog.get_table_schema(t) for t in tables},
+        "tables": {t: {"table_name": t, **NDAPCatalog.get_table_schema(t)} for t in tables},
     }
 
 
