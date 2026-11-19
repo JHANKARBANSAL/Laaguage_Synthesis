@@ -197,14 +197,6 @@ def execute_gold_sql(
                 if not query_text:
                     continue
                 nonempty_gold_rows += 1
-                valid_sql, normalized_or_reason = validate_postgres_readonly_sql(query_text)
-                if not valid_sql:
-                    raise ValueError(
-                        f"Pinned gold SQL is not a single read-only SELECT: {normalized_or_reason}"
-                    )
-                _tree, parse_error = _parse_sql(query_text)
-                if parse_error:
-                    raise ValueError(f"Pinned gold SQL unexpectedly failed parsing: {parse_error}")
                 mapping = mappings.get(benchmark_schema)
                 if mapping is None:
                     unmapped_rows[benchmark_schema] += 1
@@ -213,7 +205,13 @@ def execute_gold_sql(
                 started = perf_counter()
                 error = None
                 row_count = None
+                valid_sql, normalized_or_reason = validate_postgres_readonly_sql(query_text)
+                _tree, parse_error = _parse_sql(query_text) if valid_sql else (None, None)
                 try:
+                    if not valid_sql:
+                        raise ValueError(f"Gold SQL read-only validation failed: {normalized_or_reason}")
+                    if parse_error:
+                        raise ValueError(f"Gold SQL parse failed: {parse_error}")
                     with connection.cursor() as cursor:
                         cursor.execute("SET LOCAL statement_timeout = %s", (statement_timeout_ms,))
                         cursor.execute(
