@@ -50,6 +50,12 @@ def main():
         "--save", action="store_true", default=True, help="Save evaluation artifacts to disk"
     )
     args = parser.parse_args()
+    if args.compare_baselines:
+        parser.error(
+            "The tracked baseline_models_matrix.json contains unverified, non-comparable "
+            "claims. Re-run baselines on the identical evaluation cohort and provide "
+            "per-query predictions and receipts before displaying a leaderboard."
+        )
 
     if args.suite_relational:
         suite_path = REPO_ROOT / "data" / "benchmarks" / "indicdb_relational_50.json"
@@ -147,45 +153,6 @@ def main():
     print(f"  • Indic-to-English Gap Delta     : {delta}% ({delta_color})")
     print("=" * 95)
 
-    if args.compare_baselines:
-        matrix_file = REPO_ROOT / "data" / "benchmarks" / "baseline_models_matrix.json"
-        if matrix_file.exists():
-            import json
-            with open(matrix_file, "r", encoding="utf-8") as f:
-                bdata = json.load(f)
-            bmodels = bdata.get("models", {})
-            bheaders = [
-                "Model", "Weights / Path", "Params", "Edge Ready", "Overall EX", "EN EX", "Indic Avg", "Indic Gap (Δ)", "Schema F1", "Latency", "Cost/1K"
-            ]
-            brows = []
-            order = [
-                "indicsql-champion", "sarvam-adapter", "qwen-adapter",
-                "indicsql-combo-a", "indicsql-combo-b", "indicsql-combo-c",
-                "gpt-4o", "llama-3-70b-instruct", "sarvam-2b-base", "qwen-2.5-coder-3b-base"
-            ]
-            seen = set()
-            for mid in order:
-                if mid in bmodels and mid not in seen:
-                    seen.add(mid)
-                    m = bmodels[mid]
-                    ex = m["execution_accuracy_pct"]
-                    brows.append([
-                        m["model_name"],
-                        m.get("adapter_path", "N/A"),
-                        m["parameter_size"],
-                        "Yes (Edge)" if m["edge_deployable"] else "No (Cloud/API)",
-                        f"{ex['overall']:.1f}%",
-                        f"{ex['en']:.1f}%",
-                        f"{m['indic_avg_ex_pct']:.1f}%",
-                        f"{m['indic_to_english_gap_delta_pct']:+.2f}%",
-                        f"{m['schema_f1']:.3f}",
-                        f"{m['avg_latency_ms']:.0f}ms",
-                        f"${m['cost_per_1k_queries_usd']:.2f}",
-                    ])
-            print("\n🏆 COMPARATIVE BASELINE LEADERBOARD (IndicDB April 2026)")
-            print("=" * 80)
-            print(tabulate(brows, headers=bheaders, tablefmt="github"))
-            print("=" * 80)
 
 
 if __name__ == "__main__":
