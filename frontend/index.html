@@ -302,26 +302,25 @@
         </div>
 
         <!-- Quick Dynamic Result Banner (appears when query is run) -->
-        <div id="home-result-card" class="w-full max-w-3xl bg-white border border-indigo-100 rounded-2xl p-5 shadow-xl mt-6 transition-all duration-300">
+        <div id="home-result-card" class="hidden w-full max-w-3xl bg-white border border-indigo-100 rounded-2xl p-5 shadow-xl mt-6 transition-all duration-300">
           <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
             <span class="text-xs font-bold uppercase tracking-wider text-indigo-600 flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-              Live Execution Result (100% Verifiable)
+              <span id="home-result-status">Query result</span>
             </span>
             <div class="flex items-center gap-2">
-              <span id="home-table-badge" class="text-[11px] bg-indigo-50 text-indigo-700 font-mono font-semibold px-2.5 py-0.5 rounded-full border border-indigo-200">Table: ndap_education_stats</span>
-              <span id="home-exec-badge" class="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2.5 py-0.5 rounded-full">DuckDB Sandbox (0.4 ms)</span>
+              <span id="home-table-badge" class="hidden text-[11px] bg-indigo-50 text-indigo-700 font-mono font-semibold px-2.5 py-0.5 rounded-full border border-indigo-200">Table: ndap_education_stats</span>
+              <span id="home-exec-badge" class="hidden text-xs bg-emerald-100 text-emerald-800 font-semibold px-2.5 py-0.5 rounded-full"></span>
             </div>
           </div>
 
-          <div class="bg-indigo-50/70 border border-indigo-100 rounded-xl p-3 mb-3">
-            <p id="home-verbalized-answer" class="text-sm font-semibold text-slate-800">
-              "बिहार में पूर्णिया (Purnia) जिले में महिला साक्षरता दर सबसे कम (62.2%) दर्ज की गई।"
-            </p>
+          <div id="home-answer-container" class="bg-indigo-50/70 border border-indigo-100 rounded-xl p-4 mb-3">
+            <h3 id="home-reason-heading" class="hidden text-base font-extrabold text-amber-900 mb-2">Why this question cannot be answered</h3>
+            <p id="home-verbalized-answer" class="text-sm font-medium leading-relaxed text-slate-800"></p>
           </div>
 
           <!-- Live Generated SQL Preview in Home card -->
-          <div class="bg-slate-900 rounded-xl p-3.5 mb-3 border border-slate-800 shadow-inner">
+          <div id="home-sql-section" class="bg-slate-900 rounded-xl p-3.5 mb-3 border border-slate-800 shadow-inner">
             <div class="flex items-center justify-between mb-1.5 text-[11px]">
               <span class="flex items-center gap-1.5 font-mono text-emerald-400 font-bold">
                 <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
@@ -331,7 +330,7 @@
                 📋 Copy SQL
               </button>
             </div>
-            <pre id="home-sql-code" class="text-xs font-mono text-cyan-300 overflow-x-auto whitespace-pre-wrap py-1">SELECT district_name, female_literacy_rate FROM ndap_education_stats WHERE state_name = 'BIHAR' ORDER BY female_literacy_rate ASC LIMIT 1;</pre>
+            <pre id="home-sql-code" class="text-xs font-mono text-cyan-300 overflow-x-auto whitespace-pre-wrap py-1"></pre>
           </div>
 
           <div class="flex flex-wrap items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100 gap-2">
@@ -340,7 +339,7 @@
               <button onclick="switchView('pipeline')" class="text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1">
                 Inspect 6-Agent Swarm &rarr;
               </button>
-              <button onclick="switchView('inspector')" class="text-emerald-600 hover:text-emerald-800 font-bold flex items-center gap-1">
+              <button id="home-inspector-link" onclick="switchView('inspector')" class="text-emerald-600 hover:text-emerald-800 font-bold flex items-center gap-1">
                 Inspect Raw DuckDB Table &rarr;
               </button>
             </div>
@@ -778,46 +777,72 @@ LIMIT 1;</pre>
 
     // Display alternatives only when returned by the live backend.
     // DOM nodes are created with textContent; model/server text is never parsed as HTML.
-    function renderAlternativeQueries(queries, explanation) {
-      const previous = document.getElementById('alternative-query-panel');
-      if (previous) previous.remove();
-      if (!Array.isArray(queries) || queries.length === 0) return;
-      const card = document.getElementById('home-result-card');
-      if (!card || !card.parentElement) return;
-      const panel = document.createElement('section');
+    function renderAlternativeQueries(queries) {
+      let panel = document.getElementById('alternative-query-panel');
+      if (panel) panel.remove();
+      panel = document.createElement('section');
       panel.id = 'alternative-query-panel';
-      panel.setAttribute('role', 'status');
       panel.setAttribute('aria-live', 'polite');
-      panel.className = 'mt-5 p-5 bg-amber-50 border border-amber-200 rounded-2xl';
-      const heading = document.createElement('h3');
-      heading.className = 'text-sm font-bold text-amber-900 mb-2';
-      heading.textContent = 'Exact question cannot be answered with the available schema';
-      panel.appendChild(heading);
-      const reason = document.createElement('p');
-      reason.className = 'text-sm text-amber-800 mb-3';
-      reason.textContent = explanation || 'Try a related question grounded in documented table columns.';
-      panel.appendChild(reason);
-      const label = document.createElement('p');
-      label.className = 'text-sm font-semibold mb-2 text-slate-700';
-      label.textContent = 'Related questions based on available schema:';
-      panel.appendChild(label);
-      const options = document.createElement('div');
-      options.className = 'flex flex-col gap-2';
-      queries.slice(0, 5).forEach((question) => {
-        if (!question || typeof question.query !== 'string' || !question.token) return;
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'text-left text-sm px-4 py-2.5 bg-white hover:bg-amber-100 border border-amber-200 rounded-xl';
-        button.textContent = question.query;
-        button.addEventListener('click', () => {
-          switchView('home');
-          document.getElementById('main-search-input').value = question.query;
-          void executeCurrentQuery(question.token);
+      panel.className = 'w-full max-w-3xl mt-5 bg-white border border-slate-200 rounded-2xl shadow-lg p-5 sm:p-6';
+      const title = document.createElement('h3');
+      title.className = 'text-lg font-extrabold text-slate-900';
+      title.textContent = 'Explore related questions';
+      const subtitle = document.createElement('p');
+      subtitle.className = 'text-sm text-slate-600 mt-1 mb-4';
+      subtitle.textContent = 'Suggestions are checked against the available database before being displayed.';
+      panel.append(title, subtitle);
+      const verified = Array.isArray(queries) ? queries.filter(x => x && typeof x.query === 'string' && x.token) : [];
+      if (!verified.length) {
+        const empty = document.createElement('p');
+        empty.className = 'rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-600';
+        empty.textContent = 'No execution-verified alternatives are available for this question. IndicSQL will not invent related answers.';
+        panel.appendChild(empty);
+      } else {
+        const list = document.createElement('div');
+        list.className = 'flex flex-col gap-3';
+        verified.slice(0, 5).forEach((item, index) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'w-full rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 text-left hover:bg-indigo-50 hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500';
+          const kicker = document.createElement('span');
+          kicker.className = 'block text-[11px] font-bold uppercase tracking-wide text-indigo-600 mb-1';
+          kicker.textContent = 'Verified alternative ' + (index + 1);
+          const name = document.createElement('span');
+          name.className = 'block text-sm font-semibold text-slate-900';
+          name.textContent = item.query;
+          button.append(kicker, name);
+          button.addEventListener('click', () => {
+            switchView('home');
+            document.getElementById('main-search-input').value = item.query;
+            void executeCurrentQuery(item.token);
+          });
+          list.appendChild(button);
         });
-        options.appendChild(button);
-      });
-      panel.appendChild(options);
-      card.insertAdjacentElement('afterend', panel);
+        panel.appendChild(list);
+      }
+      document.getElementById('home-result-card').insertAdjacentElement('afterend', panel);
+    }
+
+    function updateResultState(kind, message = '', queryId = '') {
+      const failed = kind === 'failed' || kind === 'error';
+      const loading = kind === 'loading';
+      const result = document.getElementById('home-result-card');
+      result.classList.remove('hidden');
+      const status = document.getElementById('home-result-status');
+      status.textContent = failed ? 'Answer unavailable · no SQL executed'
+        : loading ? 'Checking question...' : 'Live database result';
+      status.className = failed ? 'text-amber-800' : 'text-indigo-600';
+      const answerBox = document.getElementById('home-answer-container');
+      answerBox.className = failed
+        ? 'rounded-xl border-l-4 border-amber-500 bg-amber-50 p-5 mb-3'
+        : 'rounded-xl border border-indigo-100 bg-indigo-50/70 p-4 mb-3';
+      document.getElementById('home-reason-heading').classList.toggle('hidden', !failed);
+      if (!loading) document.getElementById('home-verbalized-answer').textContent = message;
+      document.getElementById('home-sql-section').classList.toggle('hidden', failed || loading);
+      document.getElementById('home-inspector-link').classList.toggle('hidden', failed || loading);
+      document.getElementById('home-table-badge').classList.add('hidden');
+      document.getElementById('home-exec-badge').classList.add('hidden');
+      document.getElementById('home-query-id').textContent = queryId || '—';
     }
 
     // Execute Current Query across all features (Connected Live to FastAPI & DuckDB Backend)
@@ -837,9 +862,10 @@ LIMIT 1;</pre>
       const ansCard = document.getElementById('home-verbalized-answer');
       const sqlPre = document.getElementById('clean-sql-pre');
       const queryIdSpan = document.getElementById('home-query-id');
-      renderAlternativeQueries([], '');
-
-      ansCard.innerHTML = '<span class="inline-flex items-center gap-2 text-indigo-600 font-medium"><svg class="animate-spin h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg> ⏳ LangGraph Agent Swarm is querying DuckDB...</span>';
+      const lastSuggestions = document.getElementById('alternative-query-panel');
+      if (lastSuggestions) lastSuggestions.remove();
+      updateResultState('loading');
+      ansCard.textContent = 'Checking your query and available database schema...';
 
       try {
         const response = await fetch(verifiedToken ? '/suggestions/execute' : '/query', {
@@ -854,16 +880,16 @@ LIMIT 1;</pre>
           const data = await response.json();
           // Real live data from FastAPI Backend, Ollama & DuckDB
           if (data.execution_status === 'failed') {
-            ansCard.textContent = data.execution_error || data.verbalized_response || 'Query could not be answered.';
+            updateResultState('failed', data.execution_error || data.verbalized_response || 'This question cannot be answered from available data.', data.query_id);
             sqlPre.textContent = '';
             const rawPre = document.getElementById('raw-sql-pre');
             if (rawPre) rawPre.textContent = '';
-            const homeSqlCode = document.getElementById('home-sql-code');
-            if (homeSqlCode) homeSqlCode.textContent = '';
-            renderAlternativeQueries(data.verified_suggestions, data.execution_error);
+            document.getElementById('home-sql-code').textContent = '';
+            renderAlternativeQueries(data.verified_suggestions);
+            document.getElementById('home-result-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
             return;
           }
-          ansCard.textContent = data.verbalized_response || '';
+          updateResultState('success', data.verbalized_response || '', data.query_id);
           const cleanFormatted = formatSQL(data.generated_sql);
           sqlPre.innerText = cleanFormatted;
 
@@ -877,7 +903,7 @@ LIMIT 1;</pre>
 
           if (data.execution_result && data.execution_result.execution_time_ms) {
             const badge = document.getElementById('home-exec-badge');
-            if (badge) badge.innerText = `DuckDB Sandbox (${data.execution_result.execution_time_ms.toFixed(1)} ms)`;
+            if (badge) { badge.innerText = `DuckDB Sandbox (${data.execution_result.execution_time_ms.toFixed(1)} ms)`; badge.classList.remove('hidden'); }
           }
 
           const homeSqlCode = document.getElementById('home-sql-code');
@@ -886,7 +912,7 @@ LIMIT 1;</pre>
           const step2 = (data.audit_trace || []).find(s => s.agent === 'SchemaLinkerAgent' || s.step === 2);
           const tbl = step2 ? step2.matched_table : 'ndap_table';
           const tableBadge = document.getElementById('home-table-badge');
-          if (tableBadge) tableBadge.innerText = `Table: ${tbl}`;
+          if (tableBadge && tbl && tbl !== 'ndap_table' && tbl !== 'unmatched') { tableBadge.innerText = `Table: ${tbl}`; tableBadge.classList.remove('hidden'); }
 
           // Dynamically Update Pipeline Explorer Nodes for this exact query
           const pActive = document.getElementById('pipeline-active-query');
@@ -936,13 +962,14 @@ LIMIT 1;</pre>
       } catch (err) {
         // Never present invented sample statistics as live query results.
         console.error('IndicSQL API request failed:', err);
-        ansCard.textContent = 'Unable to execute the query: ' + (err instanceof Error ? err.message : 'Backend unavailable');
+        updateResultState('error', 'Unable to execute the query: ' + (err instanceof Error ? err.message : 'Backend unavailable'));
+        document.getElementById('home-result-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
         sqlPre.textContent = '';
         const rawPre = document.getElementById('raw-sql-pre');
         if (rawPre) rawPre.textContent = '';
         const homeSqlCode = document.getElementById('home-sql-code');
         if (homeSqlCode) homeSqlCode.textContent = '';
-        renderAlternativeQueries([], '');
+        renderAlternativeQueries([]);
       }
 
       // Scroll to result card smoothly
