@@ -12,6 +12,7 @@ from indicsql.events.bus import EventBus
 from indicsql.events.schemas import SchemaLinkedEvent
 from indicsql.schema.catalog import NDAPCatalog
 from indicsql.agents.query_recommender import recommend_alternative_queries
+from indicsql.agents.semantic_guard import extract_query_concepts
 from indicsql.schema.multilingual_index import NDAP_MULTILINGUAL_INDEX
 from indicsql.schema.phonetic import normalize_indic_phonetics, transliterate_indic_to_latin
 
@@ -45,9 +46,12 @@ def _unsupported_farmer_literacy_query(
         )
     )
     terms = _query_schema_terms(normalized_query)
-    if "farmer" not in terms or not terms.intersection(
-        {"literate", "literacy", "illiterate"}
-    ):
+    concepts = extract_query_concepts(query)
+    # Language-independent joint-metric protection. English terms remain
+    # recognized and native-script equivalents now trigger the same fail-closed path.
+    if not (("farmer" in concepts or "farmer" in terms) and (
+        "literacy" in concepts or terms.intersection({"literate", "literacy", "illiterate"})
+    )):
         return None
 
     schemas = (
