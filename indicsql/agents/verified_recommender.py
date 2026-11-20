@@ -15,6 +15,7 @@ from indicsql.agents.query_recommender import (
     _terms,
 )
 from indicsql.schema.catalog import NDAPCatalog
+from indicsql.agents.semantic_guard import extract_query_concepts
 from indicsql.schema.phonetic import normalize_indic_phonetics, transliterate_indic_to_latin
 
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
@@ -49,6 +50,7 @@ def verified_alternative_queries(
         query,
         normalize_indic_phonetics(query),
         transliterate_indic_to_latin(query),
+        " ".join(sorted(extract_query_concepts(query))),
     ))
     query_terms = _terms(normalized)
     candidates = []
