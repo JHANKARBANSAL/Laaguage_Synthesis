@@ -553,7 +553,7 @@ def synthesize_sql(
                 # Help the neural SQL generator distinguish Indic-language metric
                 # intent from loosely related database topics.
                 effective_query += (
-                    "\\n(Recognized domain concepts, not an answer: "
+                    "\n(Recognized domain concepts, not an answer: "
                     + ", ".join(concepts) + ")"
                 )
             neural_sql = _ollama_client.generate_sql(
