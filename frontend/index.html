@@ -829,7 +829,7 @@ LIMIT 1;</pre>
       const result = document.getElementById('home-result-card');
       result.classList.remove('hidden');
       const status = document.getElementById('home-result-status');
-      status.textContent = failed ? 'Answer unavailable · no SQL executed'
+      status.textContent = failed ? 'Answer unavailable · no valid result'
         : loading ? 'Checking question...' : 'Live database result';
       status.className = failed ? 'text-amber-800' : 'text-indigo-600';
       const answerBox = document.getElementById('home-answer-container');
