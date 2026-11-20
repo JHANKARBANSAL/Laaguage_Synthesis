@@ -11,6 +11,8 @@ from indicsql.core.state import IndicSQLState, SchemaElement
 from indicsql.events.bus import EventBus
 from indicsql.events.schemas import SchemaLinkedEvent
 from indicsql.schema.catalog import NDAPCatalog
+from indicsql.agents.query_recommender import recommend_alternative_queries
+from indicsql.agents.semantic_guard import extract_query_concepts
 from indicsql.schema.multilingual_index import NDAP_MULTILINGUAL_INDEX
 from indicsql.schema.phonetic import normalize_indic_phonetics, transliterate_indic_to_latin
 
@@ -44,9 +46,12 @@ def _unsupported_farmer_literacy_query(
         )
     )
     terms = _query_schema_terms(normalized_query)
-    if "farmer" not in terms or not terms.intersection(
-        {"literate", "literacy", "illiterate"}
-    ):
+    concepts = extract_query_concepts(query)
+    # Language-independent joint-metric protection. English terms remain
+    # recognized and native-script equivalents now trigger the same fail-closed path.
+    if not (("farmer" in concepts or "farmer" in terms) and (
+        "literacy" in concepts or terms.intersection({"literate", "literacy", "illiterate"})
+    )):
         return None
 
     schemas = (
@@ -419,6 +424,16 @@ def schema_linker_node(state: IndicSQLState) -> Dict[str, Any]:
         if has_target
         else "No supported database schema matched this question; no query was executed."
     )
+    # General recommendation fallback for any unmatched schema (not only farmer literacy).
+    # Existing specialized alternatives take precedence and preserve prior behavior.
+    if linking_error and not suggested_queries:
+        suggested_queries = recommend_alternative_queries(
+            canonical_query,
+            schema=provided_schema,
+            language=lang,
+            preferred_table=primary_table or None,
+            limit=5,
+        )
 
     # Dynamic schema-linking confidence score based on match count and specificity
     match_density = sum(len(el.get("indic_synonyms", [])) for el in pruned)

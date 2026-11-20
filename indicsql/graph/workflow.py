@@ -12,6 +12,7 @@ from indicsql.agents.reflection_healer import reflection_healer_node
 from indicsql.agents.response_verbalizer import response_verbalizer_node
 from indicsql.agents.sandbox_executor import sandbox_executor_node
 from indicsql.agents.schema_linker import schema_linker_node
+from indicsql.agents.semantic_guard import metric_mismatch_reason
 from indicsql.agents.sql_synthesizer import sql_synthesizer_node
 from indicsql.agents.supervisor import supervisor_node
 from indicsql.core.state import IndicSQLState
@@ -160,6 +161,31 @@ def execute_indicsql_pipeline(
         state.update(critic_node(state))
         if not state.get("syntax_valid", True):
             break
+
+        # Fail closed on a recognizable requested metric that the generated
+        # SQL does not read. Never let a valid but irrelevant SELECT count as
+        # answering a user's question (e.g. Telugu literacy -> beneficiaries).
+        mismatch = metric_mismatch_reason(
+            state.get("raw_query", ""),
+            state.get("generated_sql", ""),
+            state.get("database_dialect", "duckdb"),
+        )
+        if mismatch:
+            state["schema_linking_error"] = mismatch
+            state["execution_error"] = mismatch
+            state["execution_result"] = None
+            state["generated_sql"] = ""
+            trace = list(state.get("audit_trace", []))
+            trace.append({
+                "step": 3.75,
+                "agent": "SemanticMetricGuard",
+                "action": "blocked_unrelated_metric_before_execution",
+                "status": "rejected",
+                "reason": mismatch,
+            })
+            state["audit_trace"] = trace
+            state.update(response_verbalizer_node(state))
+            return state
 
         # Sandbox execution
         state.update(sandbox_executor_node(state, sandbox=sandbox))

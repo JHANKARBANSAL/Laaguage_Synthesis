@@ -12,6 +12,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from indicsql.core.state import IndicSQLState
+from indicsql.agents.semantic_guard import extract_query_concepts
 from indicsql.events.bus import EventBus
 from indicsql.events.schemas import SQLSynthesizedEvent
 from indicsql.models.interactive_query_policy import apply_interactive_query_defaults
@@ -547,6 +548,14 @@ def synthesize_sql(
                 if transliterated and transliterated != raw_query
                 else raw_query
             )
+            concepts = sorted(extract_query_concepts(raw_query))
+            if concepts:
+                # Help the neural SQL generator distinguish Indic-language metric
+                # intent from loosely related database topics.
+                effective_query += (
+                    "\n(Recognized domain concepts, not an answer: "
+                    + ", ".join(concepts) + ")"
+                )
             neural_sql = _ollama_client.generate_sql(
                 query=effective_query,
                 table_name=table_name,
